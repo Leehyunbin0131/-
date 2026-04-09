@@ -2,8 +2,9 @@ export type CounselingStage =
   | "intake"
   | "ready_for_summary"
   | "active_counseling"
-  | "upgrade_required"
   | "completed";
+
+export type SummaryJobStatus = "none" | "running" | "failed";
 
 export type MessageRole = "assistant" | "user";
 
@@ -14,18 +15,22 @@ export interface IntakeQuestion {
   help_text?: string | null;
   options: string[];
   allows_multiple: boolean;
+  input_type: string;
+  placeholder?: string | null;
 }
 
 export interface UserProfile {
-  current_stage?: string | null;
+  student_status?: string | null;
+  interest_fields: string[];
+  student_record_grade?: string | null;
+  mock_exam_score?: string | null;
+  converted_score?: string | null;
+  admission_plan?: string | null;
+  track_preferences: string[];
   target_region?: string | null;
-  goals: string[];
-  interests: string[];
-  avoidances: string[];
-  priorities: string[];
-  strengths: string[];
+  residence_preference?: string | null;
   constraints: string[];
-  decision_pain?: string | null;
+  blocked_tracks: string[];
   notes?: string | null;
 }
 
@@ -35,19 +40,16 @@ export interface ConversationMessage {
   kind: string;
   content: string;
   created_at: string;
+  request_id?: string | null;
 }
 
 export interface QuotaState {
-  actor_type: "guest" | "user";
+  actor_type: "guest";
   actor_id: string;
-  trial_limit: number;
-  trial_used: number;
-  trial_remaining: number;
-  paid_total: number;
-  paid_used: number;
-  paid_remaining: number;
-  total_remaining: number;
-  requires_upgrade: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  exhausted: boolean;
   can_chat: boolean;
 }
 
@@ -64,35 +66,34 @@ export interface SessionProgressResponse {
   quota: QuotaState;
 }
 
-export interface RecommendationDirection {
-  title: string;
+export interface RecommendationOption {
+  university: string;
+  major: string;
+  track: string;
+  campus_or_region?: string | null;
   fit_reason: string;
   evidence_summary: string;
-  action_tip?: string | null;
-}
-
-export interface RiskTradeoff {
-  direction_title: string;
-  risk: string;
-  reality_check: string;
+  dorm_note?: string | null;
+  tuition_note?: string | null;
+  next_step?: string | null;
+  metrics_line?: string | null;
+  source_file_hint?: string | null;
 }
 
 export interface CounselingSummary {
-  situation_summary: string;
-  recommended_directions: RecommendationDirection[];
-  risks_and_tradeoffs: RiskTradeoff[];
+  overview: string;
+  recommended_options: RecommendationOption[];
   next_actions: string[];
   closing_message: string;
 }
 
 export interface EvidenceItem {
-  dataset_id: string;
-  dataset_title: string;
-  table_id: string;
-  table_title: string;
+  dataset_id?: string | null;
+  dataset_title?: string | null;
+  school_name?: string | null;
+  region?: string | null;
   snapshot_date?: string | null;
   source_path: string;
-  score?: number | null;
   excerpt: string;
   query_rows: Array<Record<string, unknown>>;
 }
@@ -106,12 +107,30 @@ export interface SessionStatusResponse {
     user_profile: UserProfile;
     conversation: ConversationMessage[];
     final_summary?: CounselingSummary | null;
+    summary_job_status?: SummaryJobStatus;
+    summary_job_error?: string | null;
+    followup_job_status?: SummaryJobStatus;
+    followup_job_error?: string | null;
+    followup_pending_client_request_id?: string | null;
   };
   current_question?: IntakeQuestion | null;
   answered_count: number;
   total_questions: number;
   can_complete: boolean;
   quota: QuotaState;
+}
+
+export interface CompleteSessionAcceptedResponse {
+  session_id: string;
+  summary_job_status: SummaryJobStatus;
+  message: string;
+}
+
+export interface FollowupAcceptedResponse {
+  session_id: string;
+  client_request_id: string;
+  followup_job_status: SummaryJobStatus;
+  message: string;
 }
 
 export interface SessionSummaryResponse {
@@ -122,6 +141,12 @@ export interface SessionSummaryResponse {
   trace_id?: string | null;
   provider?: string | null;
   model?: string | null;
+  grounding_mode?: string | null;
+  used_web_search?: boolean;
+  used_file_input?: boolean;
+  file_ids: string[];
+  file_count: number;
+  region_filter?: string | null;
   quota: QuotaState;
   conversation: ConversationMessage[];
 }
@@ -131,38 +156,12 @@ export interface FollowupResponse {
   stage: CounselingStage;
   answer: string;
   trace_id?: string | null;
+  grounding_mode?: string | null;
+  used_web_search?: boolean;
+  used_file_input?: boolean;
+  file_ids: string[];
+  file_count: number;
+  region_filter?: string | null;
   conversation: ConversationMessage[];
   quota: QuotaState;
-}
-
-export interface AuthState {
-  actor_type: "guest" | "user";
-  guest_id?: string | null;
-  user?: {
-    user_id: string;
-    email: string;
-    email_verified_at: string | null;
-  } | null;
-  quota: QuotaState;
-}
-
-export interface EmailStartResponse {
-  email: string;
-  sent: boolean;
-  verification_code?: string | null;
-}
-
-export interface EmailVerifyResponse {
-  actor_type: "user";
-  user: {
-    user_id: string;
-    email: string;
-    email_verified_at: string | null;
-  };
-  quota: QuotaState;
-}
-
-export interface CheckoutResponse {
-  checkout_url: string;
-  order_id: string;
 }

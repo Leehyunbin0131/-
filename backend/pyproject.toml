@@ -5,20 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "career-counsel-ai"
 version = "0.1.0"
-description = "Grounded education and employment counseling backend"
+description = "Admissions recommendation backend using file inputs and web enrichment"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "duckdb",
     "fastapi",
     "httpx",
-    "openai",
+    "ollama>=0.4",
+    "openai>=1.40",
     "openpyxl",
     "pandas",
     "pydantic",
     "pydantic-settings",
     "pyarrow",
-    "stripe",
     "uvicorn[standard]",
     "xlrd",
 ]

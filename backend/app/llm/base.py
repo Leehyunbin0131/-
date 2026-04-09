@@ -25,6 +25,10 @@ class GenerationResponse(BaseModel):
     content: str
     parsed: Any | None = None
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    used_web_search: bool = False
+    used_file_input: bool = False
+    file_ids: list[str] = Field(default_factory=list)
+    file_count: int = 0
 
 
 class EmbeddingResponse(BaseModel):

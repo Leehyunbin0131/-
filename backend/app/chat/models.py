@@ -5,9 +5,8 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.query.sql_runner import AggregateSpec, StructuredFilter
 from app.usage.models import QuotaState
 
 
@@ -15,54 +14,60 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class QuestionIntent(str, Enum):
-    information = "information"
-    numeric = "numeric"
-    counseling = "counseling"
-
-
 class CounselingStage(str, Enum):
     intake = "intake"
     ready_for_summary = "ready_for_summary"
     active_counseling = "active_counseling"
-    upgrade_required = "upgrade_required"
     completed = "completed"
 
 
+class SummaryJobStatus(str, Enum):
+    """Background /complete job. none = idle or finished successfully."""
+
+    none = "none"
+    running = "running"
+    failed = "failed"
+
+
 class UserProfile(BaseModel):
-    current_stage: str | None = None
+    student_status: str | None = None
+    interest_fields: list[str] = Field(default_factory=list)
+    student_record_grade: str | None = None
+    mock_exam_score: str | None = None
+    converted_score: str | None = None
+    admission_plan: str | None = None
+    track_preferences: list[str] = Field(default_factory=list)
     target_region: str | None = None
-    goals: list[str] = Field(default_factory=list)
-    interests: list[str] = Field(default_factory=list)
-    avoidances: list[str] = Field(default_factory=list)
-    priorities: list[str] = Field(default_factory=list)
-    strengths: list[str] = Field(default_factory=list)
+    residence_preference: str | None = None
     constraints: list[str] = Field(default_factory=list)
-    decision_pain: str | None = None
+    blocked_tracks: list[str] = Field(default_factory=list)
     notes: str | None = None
 
 
 class EvidenceItem(BaseModel):
-    dataset_id: str
-    dataset_title: str
-    table_id: str
-    table_title: str
+    dataset_id: str | None = None
+    dataset_title: str | None = None
+    school_name: str | None = None
+    region: str | None = None
     snapshot_date: str | None = None
     source_path: str
-    score: float | None = None
     excerpt: str
     query_rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class TableSelectionPlan(BaseModel):
-    table_id: str
-    rationale: str
-    select: list[str] = Field(default_factory=list)
-    filters: list[StructuredFilter] = Field(default_factory=list)
-    group_by: list[str] = Field(default_factory=list)
-    aggregates: list[AggregateSpec] = Field(default_factory=list)
-    order_by: list[str] = Field(default_factory=list)
-    limit: int = 5
+class RecommendationOption(BaseModel):
+    university: str
+    major: str
+    track: str
+    campus_or_region: str | None = None
+    fit_reason: str
+    evidence_summary: str
+    dorm_note: str | None = None
+    tuition_note: str | None = None
+    next_step: str | None = None
+    # 첨부 모집결과 표에서 인용한 수치·연도·근거 파일 (LLM이 채움)
+    metrics_line: str | None = None
+    source_file_hint: str | None = None
 
 
 class IntakeQuestion(BaseModel):
@@ -72,6 +77,8 @@ class IntakeQuestion(BaseModel):
     help_text: str | None = None
     options: list[str] = Field(default_factory=list)
     allows_multiple: bool = False
+    input_type: str = "text"
+    placeholder: str | None = None
 
 
 class IntakeAnswer(BaseModel):
@@ -79,23 +86,9 @@ class IntakeAnswer(BaseModel):
     answer: str | list[str]
 
 
-class RecommendationDirection(BaseModel):
-    title: str
-    fit_reason: str
-    evidence_summary: str
-    action_tip: str | None = None
-
-
-class RiskTradeoff(BaseModel):
-    direction_title: str
-    risk: str
-    reality_check: str
-
-
 class CounselingSummary(BaseModel):
-    situation_summary: str
-    recommended_directions: list[RecommendationDirection] = Field(default_factory=list)
-    risks_and_tradeoffs: list[RiskTradeoff] = Field(default_factory=list)
+    overview: str
+    recommended_options: list[RecommendationOption] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     closing_message: str
 
@@ -115,17 +108,16 @@ class ConversationMessage(BaseModel):
 
 
 class CounselingSession(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     session_id: str = Field(default_factory=lambda: uuid4().hex)
     stage: CounselingStage = CounselingStage.intake
     opening_question: str | None = None
     guest_id: str | None = None
-    user_id: str | None = None
     user_profile: UserProfile = Field(default_factory=UserProfile)
     answers: list[IntakeAnswer] = Field(default_factory=list)
     conversation: list[ConversationMessage] = Field(default_factory=list)
     current_question_id: str | None = None
-    llm_provider: str | None = None
-    top_k: int = 5
     include_sources: bool = True
     final_summary: CounselingSummary | None = None
     final_evidence: list[EvidenceItem] = Field(default_factory=list)
@@ -134,13 +126,24 @@ class CounselingSession(BaseModel):
     last_trace_id: str | None = None
     last_provider: str | None = None
     last_model: str | None = None
+    last_grounding_mode: str | None = None
+    last_used_web_search: bool = False
+    last_used_file_input: bool = False
+    last_file_ids: list[str] = Field(default_factory=list)
+    last_file_count: int = 0
+    last_region_filter: str | None = None
+    summary_job_status: SummaryJobStatus = SummaryJobStatus.none
+    summary_job_error: str | None = None
+    followup_job_status: SummaryJobStatus = SummaryJobStatus.none
+    followup_job_error: str | None = None
+    followup_pending_client_request_id: str | None = None
 
 
 class SessionStartRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     opening_question: str | None = None
     user_profile: UserProfile = Field(default_factory=UserProfile)
-    llm_provider: str | None = None
-    top_k: int = 5
     include_sources: bool = True
 
 
@@ -175,6 +178,23 @@ class SessionStatusResponse(BaseModel):
     quota: QuotaState
 
 
+class CompleteSessionAcceptedResponse(BaseModel):
+    """Returned with HTTP 202 when summary generation runs in the background."""
+
+    session_id: str
+    summary_job_status: SummaryJobStatus
+    message: str
+
+
+class FollowupAcceptedResponse(BaseModel):
+    """Returned with HTTP 202 when a follow-up answer is generated in the background."""
+
+    session_id: str
+    client_request_id: str
+    followup_job_status: SummaryJobStatus
+    message: str
+
+
 class SessionSummaryResponse(BaseModel):
     session_id: str
     stage: CounselingStage
@@ -183,6 +203,12 @@ class SessionSummaryResponse(BaseModel):
     trace_id: str | None = None
     provider: str | None = None
     model: str | None = None
+    grounding_mode: str | None = None
+    used_web_search: bool = False
+    used_file_input: bool = False
+    file_ids: list[str] = Field(default_factory=list)
+    file_count: int = 0
+    region_filter: str | None = None
     conversation: list[ConversationMessage] = Field(default_factory=list)
     quota: QuotaState
 
@@ -192,5 +218,11 @@ class FollowupResponse(BaseModel):
     stage: CounselingStage
     answer: str
     trace_id: str | None = None
+    grounding_mode: str | None = None
+    used_web_search: bool = False
+    used_file_input: bool = False
+    file_ids: list[str] = Field(default_factory=list)
+    file_count: int = 0
+    region_filter: str | None = None
     conversation: list[ConversationMessage] = Field(default_factory=list)
     quota: QuotaState

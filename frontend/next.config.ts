@@ -7,8 +7,15 @@ const backendInternal =
     "",
   );
 
+/** LAN 등에서 접속 시 dev HMR 차단 경고를 없애려면 콤마로 구분해 호스트만 적습니다. 예: 192.168.45.180 */
+const allowedDevOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
   async rewrites() {
     return [
       {

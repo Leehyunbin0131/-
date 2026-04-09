@@ -15,6 +15,10 @@ class DatasetRecord(BaseModel):
     title: str
     source_path: str
     topic: str | None = None
+    school_name: str | None = None
+    region: str | None = None
+    year: str | None = None
+    document_type: str | None = None
     provider: str = "stats-data"
     source_uri: str | None = None
     license_name: str | None = None

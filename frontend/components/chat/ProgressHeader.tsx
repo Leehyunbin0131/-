@@ -3,11 +3,10 @@
 import type { CounselingStage, QuotaState } from "@/lib/types";
 
 const STAGE_LABELS: Record<CounselingStage, string> = {
-  intake: "상황 파악",
-  ready_for_summary: "요약 준비",
-  active_counseling: "상담 진행",
-  upgrade_required: "업그레이드 필요",
-  completed: "상담 완료",
+  intake: "추천 입력",
+  ready_for_summary: "추천 준비",
+  active_counseling: "추천 결과",
+  completed: "세션 종료",
 };
 
 interface ProgressHeaderProps {
@@ -15,6 +14,7 @@ interface ProgressHeaderProps {
   answeredCount: number;
   totalQuestions: number;
   quota?: QuotaState | null;
+  awaitingAssistant?: boolean;
 }
 
 export function ProgressHeader({
@@ -22,6 +22,7 @@ export function ProgressHeader({
   answeredCount,
   totalQuestions,
   quota,
+  awaitingAssistant = false,
 }: ProgressHeaderProps) {
   return (
     <header className="progressHeader">
@@ -29,17 +30,18 @@ export function ProgressHeader({
         <div className="progressCount">{STAGE_LABELS[stage]}</div>
       </div>
       <div className="progressMeta">
+        {awaitingAssistant ? (
+          <span className="progressPill generatingPill">
+            <span className="generatingDot" aria-hidden />
+            답변 생성 중
+          </span>
+        ) : null}
         <span className="progressPill">
           intake {answeredCount}/{totalQuestions}
         </span>
         {quota ? (
           <span className="progressPill">
-            남은 상담 {quota.total_remaining}회
-          </span>
-        ) : null}
-        {quota ? (
-          <span className="progressPill">
-            {quota.actor_type === "guest" ? "체험 중" : "결제 계정"}
+            남은 분석 {quota.remaining}회
           </span>
         ) : null}
       </div>

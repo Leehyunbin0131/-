@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.auth.models import AuthState, EmailVerification, GuestIdentity, UserAccount
+from app.auth.models import AuthState, GuestIdentity
 
 
 class AuthStore:
@@ -23,19 +23,5 @@ class AuthStore:
         )
         return state
 
-    def find_user_by_email(self, email: str) -> UserAccount | None:
-        normalized = email.strip().lower()
-        state = self.load()
-        for user in state.users.values():
-            if user.email.strip().lower() == normalized:
-                return user
-        return None
-
     def get_guest(self, guest_id: str) -> GuestIdentity | None:
         return self.load().guests.get(guest_id)
-
-    def get_user(self, user_id: str) -> UserAccount | None:
-        return self.load().users.get(user_id)
-
-    def get_verification(self, email: str) -> EmailVerification | None:
-        return self.load().verifications.get(email.strip().lower())

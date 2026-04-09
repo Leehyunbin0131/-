@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
+
+import pandas as pd
 
 from app.catalog.manifest import ManifestStore
-from app.catalog.models import DatasetRecord, LineageRecord, SnapshotRecord, TableRecord
+from app.catalog.models import CatalogState, DatasetRecord, LineageRecord, SnapshotRecord, TableRecord
 from app.config import Settings
 from app.ingestion.parser_utils import (
     build_dataset_id,
@@ -36,6 +39,25 @@ class IngestionReport:
 
 class IngestionPipeline:
     SUPPORTED_PATTERNS = ("*.xls", "*.xlsx", "*.xlsm")
+    REGION_KEYWORDS = (
+        "서울",
+        "경기",
+        "인천",
+        "강원",
+        "대전",
+        "세종",
+        "충북",
+        "충남",
+        "대구",
+        "경북",
+        "부산",
+        "울산",
+        "경남",
+        "광주",
+        "전북",
+        "전남",
+        "제주",
+    )
 
     def __init__(
         self,
@@ -69,6 +91,8 @@ class IngestionPipeline:
             else:
                 ingested_files += 1
 
+        self._refresh_dataset_regions()
+
         return IngestionReport(
             scanned_files=len(sources),
             ingested_files=ingested_files,
@@ -76,6 +100,85 @@ class IngestionPipeline:
             table_count=total_tables,
             items=items,
         )
+
+    @staticmethod
+    def _infer_document_type(relative_path: Path) -> str | None:
+        text = " ".join(relative_path.parts)
+        if any(
+            token in text
+            for token in (
+                "모집결과",
+                "전형결과",
+                "입시결과",
+                "충원합격",
+                "충원현황",
+                "최초합격",
+                "합격현황",
+                "합격자현황",
+                "경쟁률",
+            )
+        ):
+            return "result"
+        if "모집요강" in text or "요강" in text:
+            return "guide"
+        # 파일명 힌트가 없어도 Data 아래 스프레드시트는 file inputs 후보로 쓴다.
+        return "result"
+
+    @staticmethod
+    def _extract_school_name(relative_path: Path) -> str | None:
+        text = " ".join(relative_path.parts)
+        matches = set(re.findall(r"([가-힣A-Za-z0-9]+대학교|[가-힣A-Za-z0-9]+대)", text))
+        cleaned = [item for item in matches if item not in {"대학", "대학교"}]
+        if not cleaned:
+            return None
+        return sorted(cleaned, key=len, reverse=True)[0]
+
+    def _infer_region(self, relative_path: Path, school_name: str | None) -> str | None:
+        text = " ".join(relative_path.parts)
+        for keyword in self.REGION_KEYWORDS:
+            if keyword in (school_name or "") or keyword in text:
+                return keyword
+        return None
+
+    def _build_school_region_map(self, catalog: CatalogState) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for table in catalog.tables.values():
+            joined = f"{table.title} {table.source_path}"
+            if "학교명" not in joined and "대학현황지표" not in joined and "전국대학별학과정보표준데이터" not in joined:
+                continue
+            parquet_path = Path(table.parquet_path)
+            if not parquet_path.exists():
+                continue
+            try:
+                frame = pd.read_parquet(parquet_path)
+            except Exception:
+                continue
+            school_col = next((col for col in frame.columns if "학교명" in str(col)), None)
+            region_col = next(
+                (col for col in frame.columns if any(token in str(col) for token in ("시도명", "지역", "소재지"))),
+                None,
+            )
+            if school_col is None or region_col is None:
+                continue
+            for _, row in frame[[school_col, region_col]].dropna().iterrows():
+                school = str(row[school_col]).strip()
+                region = str(row[region_col]).strip()
+                if school and region and school not in mapping:
+                    mapping[school] = region
+        return mapping
+
+    def _refresh_dataset_regions(self) -> None:
+        catalog = self.manifest_store.load()
+        school_region_map = self._build_school_region_map(catalog)
+        changed = False
+        for dataset in catalog.datasets.values():
+            if dataset.school_name and dataset.school_name in school_region_map:
+                region = school_region_map[dataset.school_name]
+                if dataset.region != region:
+                    dataset.region = region
+                    changed = True
+        if changed:
+            self.manifest_store.save(catalog)
 
     def ingest_file(self, source_path: Path) -> IngestedFileReport:
         file_hash = hash_file(source_path)
@@ -99,11 +202,16 @@ class IngestionPipeline:
                 skipped=True,
             )
 
+        school_name = self._extract_school_name(relative_path)
         dataset = DatasetRecord(
             dataset_id=dataset_id,
             title=relative_path.stem,
             source_path=str(relative_path),
             topic=dataset_topic_from_path(relative_path),
+            school_name=school_name,
+            region=self._infer_region(relative_path, school_name),
+            year=snapshot_date,
+            document_type=self._infer_document_type(relative_path),
             tags=[part for part in relative_path.parts[:-1]],
         )
         parsed_dataset = parser.parse(source_path, dataset, snapshot_date)

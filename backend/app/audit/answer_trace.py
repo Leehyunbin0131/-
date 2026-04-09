@@ -25,6 +25,13 @@ class AnswerTrace(BaseModel):
     tables: list[str] = Field(default_factory=list)
     filters: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
+    grounding_mode: str | None = None
+    used_web_search: bool = False
+    used_file_input: bool = False
+    file_ids: list[str] = Field(default_factory=list)
+    file_count: int = 0
+    region_filter: str | None = None
+    recommended_tracks: list[str] = Field(default_factory=list)
     answer: str
 
 

@@ -1,98 +1,75 @@
 "use client";
 
-import type {
-  ConversationMessage,
-  CounselingSummary,
-  EvidenceItem,
-} from "@/lib/types";
+import type { RefObject } from "react";
+
+import { AssistantMessageMarkdown } from "@/components/chat/AssistantMessageMarkdown";
+import type { ConversationMessage } from "@/lib/types";
 
 interface ConversationPaneProps {
   conversation: ConversationMessage[];
-  summary?: CounselingSummary | null;
-  evidence?: EvidenceItem[];
+  awaitingAssistant?: boolean;
+  /** Scroll target: typing row while waiting, else last message — aligned with block:start + scroll-margin */
+  scrollTargetRef?: RefObject<HTMLDivElement | null>;
+}
+
+function TypingIndicator() {
+  return (
+    <div className="messageRow assistant messageRowAnimated">
+      <div
+        className="messageBubble typingBubble"
+        aria-busy="true"
+        aria-live="polite"
+        aria-label="추천 결과를 정리 중입니다"
+      >
+        <div className="messageMeta">추천 엔진</div>
+        <div className="typingDots">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function ConversationPane({
   conversation,
-  summary,
-  evidence = [],
+  awaitingAssistant = false,
+  scrollTargetRef,
 }: ConversationPaneProps) {
+  const lastIndex = conversation.length - 1;
+  const refOnLastMessage =
+    Boolean(scrollTargetRef) && !awaitingAssistant && conversation.length > 0;
+  const refOnTyping = Boolean(scrollTargetRef) && awaitingAssistant;
+
   return (
     <section className="conversationPane">
-      {conversation.map((message) => (
+      {conversation.map((message, index) => (
         <div
           key={message.message_id}
-          className={`messageRow ${message.role === "assistant" ? "assistant" : "user"}`}
+          ref={refOnLastMessage && index === lastIndex ? scrollTargetRef : undefined}
+          className={`messageRow ${message.role === "assistant" ? "assistant" : "user"} messageRowAnimated${refOnLastMessage && index === lastIndex ? " conversationScrollTarget" : ""}`}
         >
           <div className="messageBubble">
             <div className="messageMeta">
-              {message.role === "assistant" ? "상담사" : "나"}
+              {message.role === "assistant" ? "추천 엔진" : "나"}
             </div>
-            {message.content}
+            {message.role === "assistant" ? (
+              <AssistantMessageMarkdown content={message.content} />
+            ) : (
+              <div className="messagePlain">{message.content}</div>
+            )}
           </div>
         </div>
       ))}
 
-      {summary ? (
-        <>
-          <div className="summarySection">
-            <div className="summaryTitle">상황 요약</div>
-            <div>{summary.situation_summary}</div>
-          </div>
-
-          <div className="summarySection">
-            <div className="summaryTitle">추천 방향</div>
-            {summary.recommended_directions.map((direction) => (
-              <div key={direction.title} style={{ marginBottom: 18 }}>
-                <h3 className="summaryBlockTitle">{direction.title}</h3>
-                <div>{direction.fit_reason}</div>
-                <div className="mutedText" style={{ marginTop: 8 }}>
-                  근거: {direction.evidence_summary}
-                </div>
-                {direction.action_tip ? (
-                  <div className="mutedText" style={{ marginTop: 8 }}>
-                    다음: {direction.action_tip}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-
-          <div className="summarySection">
-            <div className="summaryTitle">리스크와 현실적 체크포인트</div>
-            <ul className="simpleList">
-              {summary.risks_and_tradeoffs.map((item) => (
-                <li key={`${item.direction_title}-${item.risk}`}>
-                  <strong>{item.direction_title}</strong>: {item.risk} /{" "}
-                  {item.reality_check}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="summarySection">
-            <div className="summaryTitle">다음 행동</div>
-            <ul className="simpleList">
-              {summary.next_actions.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-
-          {evidence.length > 0 ? (
-            <div className="summarySection">
-              <div className="summaryTitle">통계 근거</div>
-              <ul className="simpleList">
-                {evidence.map((item) => (
-                  <li key={item.table_id}>
-                    {item.table_title}
-                    {item.snapshot_date ? ` (${item.snapshot_date})` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </>
+      {awaitingAssistant ? (
+        <div
+          ref={refOnTyping ? scrollTargetRef : undefined}
+          className={refOnTyping ? "conversationScrollTarget" : undefined}
+        >
+          <TypingIndicator />
+        </div>
       ) : null}
     </section>
   );

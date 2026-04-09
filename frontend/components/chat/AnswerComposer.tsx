@@ -68,14 +68,16 @@ export function AnswerComposer({
     );
   }
 
+  const busy = disabled || submitting;
+
   return (
     <div className="composerShell">
-      <div className="composerBox">
+      <div className={`composerBox${busy ? " composerBoxBusy" : ""}`}>
         <div className="composerLabel">
           {currentQuestion?.help_text ??
             (mode === "intake"
-              ? "짧게 적어도 괜찮습니다."
-              : "후속 질문을 자유롭게 적어보세요.")}
+              ? "모르면 '아직 모르겠음'이라고 적어도 됩니다."
+              : "추천 결과를 바탕으로 더 좁히거나 생활 조건을 물어볼 수 있어요.")}
         </div>
 
         {canUseOptions ? (
@@ -93,7 +95,7 @@ export function AnswerComposer({
                   }}
                   type="button"
                   onClick={() => toggleOption(option)}
-                  disabled={disabled || submitting}
+                  disabled={busy}
                 >
                   {option}
                 </button>
@@ -105,26 +107,31 @@ export function AnswerComposer({
         <textarea
           className="composerTextarea"
           placeholder={
-            mode === "intake"
+            currentQuestion?.placeholder ??
+            (mode === "intake"
               ? "답변을 입력하세요."
-              : "추가로 상담받고 싶은 점을 적어주세요."
+              : "추가로 비교하거나 확인하고 싶은 점을 적어주세요.")
           }
           value={textValue}
           onChange={(event) => setTextValue(event.target.value)}
-          disabled={disabled || submitting}
+          disabled={busy}
         />
 
         <div className="composerActions">
           <div className="composerHint">
-            {mode === "intake"
-              ? "지금 단계에서는 상황 파악 질문을 진행합니다."
-              : "후속 상담은 남은 턴 수만큼 이어갈 수 있습니다."}
+            {busy
+              ? mode === "followup"
+                ? "상담사가 답변을 준비하는 동안 잠시만 기다려 주세요."
+                : "다음 내용을 준비하는 동안 잠시만 기다려 주세요."
+              : mode === "intake"
+                ? "지금 단계에서는 입시 추천에 필요한 입력만 짧게 확인합니다."
+                : "후속 질문은 대학 비교, 전형 비교, 기숙사/등록금 확인에 활용할 수 있습니다."}
           </div>
           <button
             type="button"
-            className="primaryButton"
+            className={`primaryButton${submitting ? " primaryButtonPulse" : ""}`}
             onClick={handleSubmit}
-            disabled={disabled || submitting}
+            disabled={busy}
           >
             {buttonLabel}
           </button>

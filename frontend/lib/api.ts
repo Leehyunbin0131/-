@@ -1,8 +1,6 @@
 import type {
-  AuthState,
-  CheckoutResponse,
-  EmailStartResponse,
-  EmailVerifyResponse,
+  CompleteSessionAcceptedResponse,
+  FollowupAcceptedResponse,
   FollowupResponse,
   SessionProgressResponse,
   SessionStatusResponse,
@@ -19,6 +17,31 @@ const API_BASE_URL = (
 ).replace(/\/$/, "");
 
 type HttpMethod = "GET" | "POST";
+
+function httpErrorMessage(body: string, status: number): string {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return `Request failed (${status})`;
+  }
+  try {
+    const data = JSON.parse(trimmed) as { detail?: unknown };
+    if (typeof data.detail === "string") {
+      return data.detail;
+    }
+    if (Array.isArray(data.detail)) {
+      return data.detail
+        .map((item) =>
+          typeof item === "object" && item !== null && "msg" in item
+            ? String((item as { msg: string }).msg)
+            : String(item),
+        )
+        .join(" ");
+    }
+  } catch {
+    /* plain text body */
+  }
+  return trimmed;
+}
 
 async function request<T>(
   path: string,
@@ -39,7 +62,7 @@ async function request<T>(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+    throw new Error(httpErrorMessage(text, response.status));
   }
 
   return (await response.json()) as T;
@@ -68,50 +91,71 @@ export function answerQuestion(sessionId: string, answer: string | string[]) {
   );
 }
 
-export function completeSession(sessionId: string) {
-  return request<SessionSummaryResponse>(`/api/v1/chat/session/${sessionId}/complete`, {
+export type CompleteSessionOutcome =
+  | { kind: "complete"; data: SessionSummaryResponse }
+  | { kind: "accepted"; data: CompleteSessionAcceptedResponse };
+
+export async function completeSession(
+  sessionId: string,
+): Promise<CompleteSessionOutcome> {
+  const url = `${API_BASE_URL}/api/v1/chat/session/${sessionId}/complete`;
+  const response = await fetch(url, {
     method: "POST",
+    credentials: "include",
   });
+  const text = await response.text();
+  if (response.status === 200) {
+    return {
+      kind: "complete",
+      data: JSON.parse(text) as SessionSummaryResponse,
+    };
+  }
+  if (response.status === 202) {
+    return {
+      kind: "accepted",
+      data: JSON.parse(text) as CompleteSessionAcceptedResponse,
+    };
+  }
+  if (!response.ok) {
+    throw new Error(httpErrorMessage(text, response.status));
+  }
+  throw new Error(`Unexpected status ${response.status}`);
 }
 
-export function sendFollowup(
+export type SendFollowupOutcome =
+  | { kind: "complete"; data: FollowupResponse }
+  | { kind: "accepted"; data: FollowupAcceptedResponse };
+
+export async function sendFollowup(
   sessionId: string,
   question: string,
   clientRequestId: string,
-) {
-  return request<FollowupResponse>(
-    `/api/v1/chat/session/${sessionId}/message`,
-    {
-      method: "POST",
-      body: {
-        question,
-        client_request_id: clientRequestId,
-      },
-    },
-  );
-}
-
-export function getAuthState() {
-  return request<AuthState>("/api/v1/auth/me", { noStore: true });
-}
-
-export function startEmailVerification(email: string, sessionId: string) {
-  return request<EmailStartResponse>("/api/v1/auth/email/start", {
+): Promise<SendFollowupOutcome> {
+  const url = `${API_BASE_URL}/api/v1/chat/session/${sessionId}/message`;
+  const response = await fetch(url, {
     method: "POST",
-    body: { email, session_id: sessionId },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question,
+      client_request_id: clientRequestId,
+    }),
   });
-}
-
-export function verifyEmailCode(email: string, code: string, sessionId: string) {
-  return request<EmailVerifyResponse>("/api/v1/auth/email/verify", {
-    method: "POST",
-    body: { email, code, session_id: sessionId },
-  });
-}
-
-export function createCheckout(sessionId: string) {
-  return request<CheckoutResponse>("/api/v1/billing/checkout", {
-    method: "POST",
-    body: { session_id: sessionId },
-  });
+  const text = await response.text();
+  if (response.status === 200) {
+    return {
+      kind: "complete",
+      data: JSON.parse(text) as FollowupResponse,
+    };
+  }
+  if (response.status === 202) {
+    return {
+      kind: "accepted",
+      data: JSON.parse(text) as FollowupAcceptedResponse,
+    };
+  }
+  if (!response.ok) {
+    throw new Error(httpErrorMessage(text, response.status));
+  }
+  throw new Error(`Unexpected status ${response.status}`);
 }

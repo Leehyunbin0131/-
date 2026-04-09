@@ -30,7 +30,7 @@ export function StartTrialButton() {
         onClick={handleStart}
         disabled={loading}
       >
-        {loading ? "상담 준비 중..." : "체험하기"}
+        {loading ? "추천 준비 중..." : "추천 시작하기"}
       </button>
       {error ? (
         <div className="statusBanner" style={{ marginTop: 14 }}>

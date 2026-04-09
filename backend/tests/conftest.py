@@ -13,27 +13,70 @@ from app.main import create_app
 
 @pytest.fixture()
 def workspace(tmp_path: Path) -> Path:
-    data_dir = tmp_path / "Data" / "education"
-    data_dir.mkdir(parents=True, exist_ok=True)
+    admissions_root = tmp_path / "Data" / "대학별모집결과"
+    admissions_root.mkdir(parents=True, exist_ok=True)
 
-    employment = pd.DataFrame(
+    kyonggi_result = pd.DataFrame(
         [
-            {"year": 2024, "region": "Seoul", "school_type": "university", "employment_rate": 72.5, "admission_rate": 61.2},
-            {"year": 2024, "region": "Busan", "school_type": "university", "employment_rate": 65.1, "admission_rate": 54.8},
-            {"year": 2024, "region": "Daegu", "school_type": "college", "employment_rate": 69.9, "admission_rate": 49.4},
+            {
+                "학교명": "경기대학교",
+                "학과명": "컴퓨터공학부",
+                "전형명": "학생부교과",
+                "경쟁률": 7.1,
+                "학생부등급평균": 3.4,
+                "학생부등급85컷": 3.8,
+            },
+            {
+                "학교명": "경기대학교",
+                "학과명": "인공지능전공",
+                "전형명": "학생부종합",
+                "경쟁률": 9.3,
+                "학생부등급평균": 3.6,
+                "학생부등급85컷": 4.0,
+            },
         ]
     )
-    major = pd.DataFrame(
+    daegu_result = pd.DataFrame(
         [
-            {"year": 2024, "major": "computer_science", "employment_rate": 78.1},
-            {"year": 2024, "major": "nursing", "employment_rate": 82.4},
+            {
+                "학교명": "대구대학교",
+                "학과명": "사이버보안학과",
+                "전형명": "학생부교과",
+                "경쟁률": 5.2,
+                "학생부등급평균": 3.9,
+                "학생부등급85컷": 4.4,
+            },
+            {
+                "학교명": "대구대학교",
+                "학과명": "컴퓨터정보공학부",
+                "전형명": "정시 일반",
+                "경쟁률": 4.1,
+                "환산점수": 520.3,
+            },
         ]
     )
 
-    workbook_path = data_dir / "sample_stats_2024.xlsx"
-    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
-        employment.to_excel(writer, sheet_name="employment", index=False)
-        major.to_excel(writer, sheet_name="major_stats", index=False)
+    kyonggi_dir = admissions_root / "경기대학교"
+    kyonggi_dir.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(kyonggi_dir / "2025_모집결과.xlsx", engine="openpyxl") as writer:
+        kyonggi_result.to_excel(writer, sheet_name="모집결과", index=False)
+
+    daegu_dir = admissions_root / "대구대학교"
+    daegu_dir.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(daegu_dir / "2025_모집결과.xlsx", engine="openpyxl") as writer:
+        daegu_result.to_excel(writer, sheet_name="모집결과", index=False)
+
+    mapping_dir = tmp_path / "Data" / "대학현황지표"
+    mapping_dir.mkdir(parents=True, exist_ok=True)
+    mapping = pd.DataFrame(
+        [
+            {"학교명": "경기대학교", "시도명": "경기"},
+            {"학교명": "대구대학교", "시도명": "대구"},
+        ]
+    )
+    with pd.ExcelWriter(mapping_dir / "전국대학별학과정보표준데이터-20260409.xlsx", engine="openpyxl") as writer:
+        mapping.to_excel(writer, sheet_name="Sheet1", index=False)
+
     return tmp_path
 
 
@@ -43,7 +86,8 @@ def settings(workspace: Path) -> Settings:
         project_root=workspace,
         data_root=workspace / "Data",
         storage_root=workspace / "storage",
-        default_llm_provider="openai",
+        # 개발자 .env의 COUNSEL_LLM_PROVIDER=ollama 등이 테스트를 오염하지 않도록 고정
+        llm_provider="openai",
     )
     settings.ensure_storage_dirs()
     return settings
