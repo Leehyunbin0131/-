@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "career-counsel-ai"
+version = "0.1.0"
+description = "Grounded education and employment counseling backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb",
+    "fastapi",
+    "httpx",
+    "openai",
+    "openpyxl",
+    "pandas",
+    "pydantic",
+    "pydantic-settings",
+    "pyarrow",
+    "stripe",
+    "uvicorn[standard]",
+    "xlrd",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

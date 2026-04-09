@@ -1,0 +1,41 @@
+from app.chat.models import (
+    CounselingSession,
+    CounselingStage,
+    CounselingSummary,
+    EvidenceItem,
+    IntakeAnswer,
+    IntakeQuestion,
+    QuestionIntent,
+    RecommendationDirection,
+    RiskTradeoff,
+    SessionAnswerRequest,
+    SessionProgressResponse,
+    SessionStartRequest,
+    SessionStatusResponse,
+    SessionSummaryResponse,
+    TableSelectionPlan,
+    UserProfile,
+)
+from app.chat.orchestrator import CounselingOrchestrator
+from app.chat.session_store import SessionStore
+
+__all__ = [
+    "CounselingOrchestrator",
+    "CounselingSession",
+    "CounselingStage",
+    "CounselingSummary",
+    "EvidenceItem",
+    "IntakeAnswer",
+    "IntakeQuestion",
+    "QuestionIntent",
+    "RecommendationDirection",
+    "RiskTradeoff",
+    "SessionAnswerRequest",
+    "SessionProgressResponse",
+    "SessionStartRequest",
+    "SessionStatusResponse",
+    "SessionStore",
+    "SessionSummaryResponse",
+    "TableSelectionPlan",
+    "UserProfile",
+]
