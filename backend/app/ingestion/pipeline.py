@@ -17,6 +17,11 @@ from app.ingestion.parser_utils import (
     prepare_for_parquet,
 )
 from app.ingestion.registry import ParserRegistry
+from app.region_hints import (
+    REGION_KEYWORDS,
+    infer_region_token_for_relative_path,
+    normalize_catalog_region_label,
+)
 
 
 @dataclass(slots=True)
@@ -39,25 +44,7 @@ class IngestionReport:
 
 class IngestionPipeline:
     SUPPORTED_PATTERNS = ("*.xls", "*.xlsx", "*.xlsm")
-    REGION_KEYWORDS = (
-        "서울",
-        "경기",
-        "인천",
-        "강원",
-        "대전",
-        "세종",
-        "충북",
-        "충남",
-        "대구",
-        "경북",
-        "부산",
-        "울산",
-        "경남",
-        "광주",
-        "전북",
-        "전남",
-        "제주",
-    )
+    REGION_KEYWORDS = REGION_KEYWORDS
 
     def __init__(
         self,
@@ -134,11 +121,7 @@ class IngestionPipeline:
         return sorted(cleaned, key=len, reverse=True)[0]
 
     def _infer_region(self, relative_path: Path, school_name: str | None) -> str | None:
-        text = " ".join(relative_path.parts)
-        for keyword in self.REGION_KEYWORDS:
-            if keyword in (school_name or "") or keyword in text:
-                return keyword
-        return None
+        return infer_region_token_for_relative_path(relative_path, school_name)
 
     def _build_school_region_map(self, catalog: CatalogState) -> dict[str, str]:
         mapping: dict[str, str] = {}
@@ -162,7 +145,8 @@ class IngestionPipeline:
                 continue
             for _, row in frame[[school_col, region_col]].dropna().iterrows():
                 school = str(row[school_col]).strip()
-                region = str(row[region_col]).strip()
+                raw_region = str(row[region_col]).strip()
+                region = normalize_catalog_region_label(raw_region) or raw_region
                 if school and region and school not in mapping:
                     mapping[school] = region
         return mapping
@@ -173,7 +157,8 @@ class IngestionPipeline:
         changed = False
         for dataset in catalog.datasets.values():
             if dataset.school_name and dataset.school_name in school_region_map:
-                region = school_region_map[dataset.school_name]
+                raw = school_region_map[dataset.school_name]
+                region = normalize_catalog_region_label(raw) or raw
                 if dataset.region != region:
                     dataset.region = region
                     changed = True

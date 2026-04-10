@@ -8,6 +8,11 @@ import pandas as pd
 
 from app.catalog.models import CatalogState, DatasetRecord
 from app.config import Settings
+from app.region_hints import (
+    build_region_match_blob,
+    infer_region_token_from_path,
+    normalize_catalog_region_label,
+)
 
 # 파일명·경로에 흔한 표기(대학 공지 엑셀). "모집결과" 문구가 없어도 실제 모집결과인 경우가 많음.
 _ADMISSIONS_RESULT_HINTS = (
@@ -113,7 +118,8 @@ def build_school_region_map(catalog: CatalogState) -> dict[str, str]:
             continue
         for _, row in frame[[school_col, region_col]].dropna().iterrows():
             school = str(row[school_col]).strip()
-            region = str(row[region_col]).strip()
+            raw_region = str(row[region_col]).strip()
+            region = normalize_catalog_region_label(raw_region) or raw_region
             if school and region and school not in mapping:
                 mapping[school] = region
     return mapping
@@ -131,7 +137,8 @@ def _candidate_from_dataset(
         return None
     kind = dataset.document_type or _candidate_kind(joined) or "result"
     school_name = dataset.school_name or _extract_school_name(joined)
-    region = dataset.region or school_region_map.get(school_name or "", None)
+    raw_region = dataset.region or school_region_map.get(school_name or "", None)
+    region = (normalize_catalog_region_label(raw_region) or raw_region) if raw_region else None
     return AdmissionsFileCandidate(
         path=path,
         source_path=source_path,
@@ -165,13 +172,16 @@ def list_admissions_files(settings: Settings, catalog: CatalogState) -> list[Adm
                 continue
             joined = str(path.relative_to(settings.data_root))
             kind = _candidate_kind(joined) or "result"
+            school_name = _extract_school_name(joined)
+            inferred = infer_region_token_from_path(joined, school_name)
             candidates.append(
                 AdmissionsFileCandidate(
                     path=path,
                     source_path=joined,
                     title=path.stem,
                     kind=kind,
-                    school_name=_extract_school_name(joined),
+                    school_name=school_name,
+                    region=inferred,
                     year=None,
                 )
             )
@@ -201,8 +211,10 @@ def filter_admissions_files(
         narrowed = [
             item
             for item in filtered
-            if any(token in f"{item.region or ''} {item.source_path}" for token in region_tokens)
+            if any(
+                token in build_region_match_blob(item.region, item.source_path, item.school_name)
+                for token in region_tokens
+            )
         ]
-        if narrowed:
-            filtered = narrowed
+        filtered = narrowed
     return sorted(filtered, key=lambda item: (item.kind != "result", item.source_path))
