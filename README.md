@@ -16,8 +16,8 @@
 |------|------|
 | [`backend/`](backend/) | API, 수집(ingestion), 카탈로그, 상담 세션, LLM 연동 |
 | [`frontend/`](frontend/) | 랜딩·세션·추천 결과 UI |
-| `Data/` | 원본 모집결과 등(로컬 데이터; Git 정책은 팀에 맞게) |
-| `storage/` | 런타임 상태(`.gitignore`; 카탈로그·세션·캐시 등) |
+| `Data/` | 원본 모집결과 등. **폴더·파일 배치 규칙은 [Data/README.md](Data/README.md)** 참고. |
+| `storage/` | 런타임 상태(**Git에 포함되지 않음**; 카탈로그 `manifest.json`, parquet, 세션·캐시 등). 저장소를 새로 받은 PC나 서버에서는 `Data/`를 맞춘 뒤 **반드시 ingestion을 한 번 실행**해야 추천이 파일을 찾습니다. |
 
 LLM은 **OpenAI**(파일 인풋·웹 검색) 또는 **로컬 Ollama** 중 선택합니다. 자세한 설정·타임아웃·배포는 **[backend/README.md](backend/README.md)** 를 참고하세요.
 
@@ -56,7 +56,8 @@ npm run dev
 
 ## 문서
 
-- [backend/README.md](backend/README.md) — 환경 변수, Ollama, `/complete` 비동기 요약, CORS·LAN·프로덕션(Nginx·systemd), 테스트  
+- [backend/README.md](backend/README.md) — 환경 변수, **ingestion API**, Ollama, `/complete` 비동기 요약, CORS·LAN·프로덕션(Nginx·systemd), 테스트  
+- [Data/README.md](Data/README.md) — 모집결과 엑셀 디렉터리 구조·파일명 권장, 경로 변경 후 ingestion 재실행  
 - [frontend/.env.local.example](frontend/.env.local.example) — 로컬 프록시·쿠키 관련 안내
 
 ## 라이선스

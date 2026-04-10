@@ -286,6 +286,19 @@ server {
 - 백엔드: `backend/.env.example` 참고
 - 프론트엔드: `frontend/.env.local.example` 참고
 
+## 데이터 수집(ingestion)
+
+- **엔드포인트:** `POST /api/v1/ingestion/run` — `Data/` 아래 스프레드시트를 스캔해 `storage/catalog/manifest.json`과 `storage/silver/...` parquet를 갱신합니다.
+- **`storage/`는 Git에 올라가지 않습니다** (`.gitignore`). 저장소를 클론한 다른 머신·서버에서는 `Data/`만 동기화되어 있어도 카탈로그가 비어 있으므로, **배포·로컬 첫 설정 시 ingestion을 반드시 한 번 실행**하세요.
+- 엑셀 **폴더 구조·파일명**은 지역 필터(영남권 등)와 맞물리므로 [`../Data/README.md`](../Data/README.md)를 따르는 것을 권장합니다. `Data/` 경로를 바꾼 뒤에도 ingestion을 다시 돌려야 합니다.
+
+백엔드가 떠 있지 않을 때 저장소 루트의 `Data/`를 기준으로 로컬에서만 돌리려면:
+
+```bash
+cd backend
+python -c "from app.config import Settings; from app.dependencies import ServiceContainer; s=Settings(); s.ensure_storage_dirs(); ServiceContainer(s).ingestion_pipeline.run()"
+```
+
 ## 추천 세션 흐름
 
 1. `POST /api/v1/ingestion/run`으로 수집 실행

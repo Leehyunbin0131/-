@@ -33,3 +33,5 @@ Data/
 ## 경로를 바꾼 뒤
 
 `dataset_id`가 경로 기반이므로 **ingestion을 다시 실행**해 카탈로그를 갱신하세요.
+
+`storage/`(카탈로그·parquet)는 저장소에 포함되지 않습니다. Git으로 프로젝트만 받은 환경에서는 `Data/`를 맞춘 뒤 **`POST /api/v1/ingestion/run`** 또는 [backend/README.md](../backend/README.md)의 로컬 `python -c` 예시로 수집을 실행하세요.
