@@ -23,9 +23,6 @@ class Settings(BaseSettings):
     data_root: Path | None = None
     storage_root: Path | None = None
 
-    # openai | ollama (로컬 Ollama는 파일 인풋·웹검색 미지원, 프롬프트 텍스트만 사용)
-    llm_provider: str = "openai"
-
     openai_api_key: str | None = None
     openai_chat_model: str = "gpt-5.4-nano"
     openai_embedding_model: str = "text-embedding-3-small"
@@ -42,13 +39,6 @@ class Settings(BaseSettings):
     # Web enrichment is used for living information such as dorms, tuition, and scholarships.
     openai_web_search_enabled: bool = True
     openai_web_search_model: str | None = None  # default: same as openai_chat_model
-
-    # Ollama (https://github.com/ollama/ollama-python). ollama serve 후 `ollama pull <model>`.
-    ollama_host: str | None = None  # 예: http://127.0.0.1:11434, 비우면 SDK 기본값
-    ollama_chat_model: str = "gemma3:4b"
-    ollama_embed_model: str = "nomic-embed-text"
-    ollama_timeout_seconds: float = 900.0
-    ollama_chat_temperature: float = 0.2
 
     frontend_app_url: str = "http://127.0.0.1:3000"
     # Comma-separated origins, or a JSON array string. Must stay `str` so pydantic-settings

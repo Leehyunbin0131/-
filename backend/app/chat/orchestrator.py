@@ -36,8 +36,6 @@ from app.chat.session_store import SessionStore
 from app.chat.summary_recovery import counseling_summary_from_parsed_or_text
 from app.config import Settings
 from app.llm.factory import ProviderFactory
-from app.llm.ollama_util import ollama_base_url_for_settings
-from app.llm.providers.ollama_provider import OllamaProvider
 from app.llm.providers.openai_provider import OpenAIProvider
 from app.usage.models import ActorType, TurnType
 from app.usage.service import UsageService
@@ -563,7 +561,7 @@ class CounselingOrchestrator:
         self,
         *,
         session: CounselingSession,
-        provider: Any,
+        provider: OpenAIProvider,
         file_candidates: list[AdmissionsFileCandidate],
     ) -> tuple[CounselingSummary, list[EvidenceItem], str, bool, bool, list[str]]:
         batch_size = max(1, self.settings.openai_file_batch_size)
@@ -585,6 +583,7 @@ class CounselingOrchestrator:
         batch_summaries: list[CounselingSummary] = []
         all_file_ids: list[str] = []
         any_web_search = False
+        any_file_input = False
         for batch in _chunked(file_candidates, batch_size):
             partial, used_web_search, used_file_input, file_ids = self._generate_summary_for_batch(
                 session=session,
@@ -594,8 +593,7 @@ class CounselingOrchestrator:
             batch_summaries.append(partial)
             all_file_ids.extend(file_ids)
             any_web_search = any_web_search or used_web_search
-            if not used_file_input:
-                continue
+            any_file_input = any_file_input or used_file_input
 
         final_summary = self._synthesize_batch_summaries(session, provider, batch_summaries)
         return (
@@ -603,7 +601,7 @@ class CounselingOrchestrator:
             self._candidates_to_evidence(file_candidates[:5]),
             "file_inputs_batched",
             any_web_search,
-            True,
+            any_file_input,
             _dedupe_strings(all_file_ids),
         )
 
@@ -611,7 +609,7 @@ class CounselingOrchestrator:
         self,
         *,
         session: CounselingSession,
-        provider: Any,
+        provider: OpenAIProvider,
         batch: list[AdmissionsFileCandidate],
     ) -> tuple[CounselingSummary, bool, bool, list[str]]:
         selected_files = [item.source_path for item in batch]
@@ -622,81 +620,50 @@ class CounselingOrchestrator:
             allow_web_enrichment=allow_web_enrichment,
         )
         file_paths = [item.path for item in batch]
-        if isinstance(provider, OpenAIProvider):
-            parse_plans: list[tuple[bool, bool]] = [
-                (True, allow_web_enrichment),
-                (False, allow_web_enrichment),
-            ]
-            if allow_web_enrichment:
-                parse_plans.append((False, False))
+        parse_plans: list[tuple[bool, bool]] = [
+            (True, allow_web_enrichment),
+            (False, allow_web_enrichment),
+        ]
+        if allow_web_enrichment:
+            parse_plans.append((False, False))
 
-            last_error: str | None = None
-            for use_reasoning, use_web in parse_plans:
-                try:
-                    response = provider.responses_parse(
-                        messages,
-                        text_format=CounselingSummary,
-                        use_web_search=use_web,
-                        file_paths=file_paths,
-                        use_reasoning=use_reasoning,
-                    )
-                    summary = counseling_summary_from_parsed_or_text(
-                        response.parsed,
-                        response.content or "",
-                    )
-                    if summary is None:
-                        last_error = (
-                            f"parsed_empty reasoning={use_reasoning} web={use_web} "
-                            f"content_len={len(response.content or '')}"
-                        )
-                        logger.warning("admissions summary: %s", last_error)
-                        continue
-                    summary = self._sanitize_recommendation_summary(summary)
-                    if summary.recommended_options:
-                        return (
-                            summary,
-                            response.used_web_search,
-                            response.used_file_input,
-                            response.file_ids,
-                        )
-                    last_error = f"recommended_options_empty reasoning={use_reasoning} web={use_web}"
-                    logger.warning("admissions summary: %s", last_error)
-                except Exception as exc:
-                    last_error = f"{type(exc).__name__}: {exc}"
-                    logger.warning("admissions summary OpenAI error: %s", last_error, exc_info=True)
-
-            if last_error:
-                logger.warning("admissions summary exhausted retries; last=%s", last_error)
-
-        if isinstance(provider, OllamaProvider):
+        last_error: str | None = None
+        for use_reasoning, use_web in parse_plans:
             try:
                 response = provider.responses_parse(
                     messages,
                     text_format=CounselingSummary,
-                    use_web_search=False,
-                    file_paths=None,
-                    use_reasoning=False,
+                    use_web_search=use_web,
+                    file_paths=file_paths,
+                    use_reasoning=use_reasoning,
                 )
                 summary = counseling_summary_from_parsed_or_text(
                     response.parsed,
                     response.content or "",
                 )
-                if summary is not None:
-                    summary = self._sanitize_recommendation_summary(summary)
-                    if summary.recommended_options:
-                        return (
-                            summary,
-                            False,
-                            False,
-                            [],
-                        )
-            except Exception as exc:
-                if isinstance(exc, ConnectionError):
-                    logger.warning(
-                        "admissions summary Ollama 연결 실패(대상 %s). 데몬이 떠 있는지 확인하세요.",
-                        ollama_base_url_for_settings(self.settings),
+                if summary is None:
+                    last_error = (
+                        f"parsed_empty reasoning={use_reasoning} web={use_web} "
+                        f"content_len={len(response.content or '')}"
                     )
-                logger.warning("admissions summary Ollama error: %s", exc, exc_info=True)
+                    logger.warning("admissions summary: %s", last_error)
+                    continue
+                summary = self._sanitize_recommendation_summary(summary)
+                if summary.recommended_options:
+                    return (
+                        summary,
+                        response.used_web_search,
+                        response.used_file_input,
+                        response.file_ids,
+                    )
+                last_error = f"recommended_options_empty reasoning={use_reasoning} web={use_web}"
+                logger.warning("admissions summary: %s", last_error)
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                logger.warning("admissions summary OpenAI error: %s", last_error, exc_info=True)
+
+        if last_error:
+            logger.warning("admissions summary exhausted retries; last=%s", last_error)
 
         return self._deterministic_summary(session, batch), False, False, []
 
@@ -716,7 +683,7 @@ class CounselingOrchestrator:
     def _synthesize_batch_summaries(
         self,
         session: CounselingSession,
-        provider: Any,
+        provider: OpenAIProvider,
         batch_summaries: list[CounselingSummary],
     ) -> CounselingSummary:
         if not batch_summaries:
@@ -756,7 +723,7 @@ class CounselingOrchestrator:
         *,
         session: CounselingSession,
         question: str,
-        provider: Any,
+        provider: OpenAIProvider,
         file_candidates: list[AdmissionsFileCandidate],
     ) -> tuple[str, str, bool, bool, list[str]]:
         batch = file_candidates[: max(1, self.settings.openai_file_batch_size)]
@@ -770,47 +737,22 @@ class CounselingOrchestrator:
             max_conversation_messages=self.settings.followup_context_message_limit(),
         )
         file_paths = [item.path for item in batch] if batch else []
-
-        if isinstance(provider, OpenAIProvider):
-            try:
-                response = provider.responses_create(
-                    messages,
-                    use_web_search=allow_web_enrichment,
-                    file_paths=file_paths if file_paths else None,
+        try:
+            response = provider.responses_create(
+                messages,
+                use_web_search=allow_web_enrichment,
+                file_paths=file_paths if file_paths else None,
+            )
+            if response.content.strip():
+                return (
+                    response.content.strip(),
+                    "web_enrichment" if allow_web_enrichment else "file_inputs_followup",
+                    response.used_web_search,
+                    response.used_file_input,
+                    response.file_ids,
                 )
-                if response.content.strip():
-                    return (
-                        response.content.strip(),
-                        "web_enrichment" if allow_web_enrichment else "file_inputs_followup",
-                        response.used_web_search,
-                        response.used_file_input,
-                        response.file_ids,
-                    )
-            except Exception:
-                pass
-
-        if isinstance(provider, OllamaProvider):
-            try:
-                response = provider.responses_create(
-                    messages,
-                    use_web_search=False,
-                    file_paths=None,
-                )
-                if response.content.strip():
-                    return (
-                        response.content.strip(),
-                        "ollama_followup",
-                        False,
-                        False,
-                        [],
-                    )
-            except Exception as exc:
-                if isinstance(exc, ConnectionError):
-                    logger.warning(
-                        "follow-up Ollama 연결 실패(대상 %s).",
-                        ollama_base_url_for_settings(self.settings),
-                    )
-                logger.warning("follow-up Ollama error: %s", exc, exc_info=True)
+        except Exception:
+            pass
 
         return self._deterministic_followup_answer(session, question), "deterministic_followup", False, False, []
 
@@ -877,8 +819,8 @@ class CounselingOrchestrator:
                     track=track_hint,
                     campus_or_region=region,
                     fit_reason="파일 후보가 없어 일반적인 방향만 안내합니다.",
-                    evidence_summary="`Data` 아래 엑셀 후보가 없거나 경로를 확인해 주세요.",
-                    next_step="모집결과 xlsx를 `Data`에 두고 ingestion을 실행한 뒤 다시 시도하세요.",
+                    evidence_summary="`Data` 아래 모집결과 파일(xlsx·pdf 등) 후보가 없거나 경로를 확인해 주세요.",
+                    next_step="모집결과 xlsx·pdf를 `Data`에 두고 ingestion을 실행한 뒤 다시 시도하세요.",
                 )
             ],
             next_actions=[
@@ -972,8 +914,8 @@ class CounselingOrchestrator:
             parts.append(f"희망 지역: {profile.target_region}")
         return " | ".join(parts) or "admissions recommendation"
 
-    def _model_for_trace(self, provider: Any, *, used_web_search: bool) -> str:
-        if used_web_search and isinstance(provider, OpenAIProvider):
+    def _model_for_trace(self, provider: OpenAIProvider, *, used_web_search: bool) -> str:
+        if used_web_search:
             return provider.resolved_web_search_model()
         return provider.profile.chat_model
 

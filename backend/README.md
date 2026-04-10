@@ -6,9 +6,9 @@
 
 - FastAPI 기반 입시 추천 백엔드
 - 최소 구성의 Next.js 추천 프론트엔드
-- LLM: **OpenAI**(Responses API·파일 인풋·웹 검색) 또는 **로컬 Ollama**(Python `ollama` SDK, 프롬프트 텍스트만)
+- LLM: **OpenAI**(Responses API·파일 인풋·웹 검색)
 - 5회로 집계되는 게스트 세션 기반 추천 횟수 추적
-- `Data/` 원본 모집결과/모집요강을 `file inputs`로 읽는 추천 경로(OpenAI 프로바이더)
+- `Data/` 원본 모집결과/모집요강을 `input_file`로 읽는 추천 경로
 - 기숙사·등록금·캠퍼스 생활 정보를 위한 웹 보강 경로(OpenAI·웹 검색 활성화 시)
 
 인테이크(초기 질문)는 무료입니다. 턴 차감은 시스템이 **최초 추천 요약**을 생성할 때 시작되며, 이후 후속 질문 답변마다 이어집니다.
@@ -19,6 +19,77 @@
 - `frontend/`: 랜딩, 세션, 추천 결과 UI가 있는 Next.js App Router 프론트엔드
 - `Data/`: 원본 통계 자료
 - `storage/`: 정규화 테이블, 세션, 게스트 상태, 사용량 상태, OpenAI 파일 캐시
+
+## 백엔드 아키텍처와 설계 이유
+
+### 요청 흐름(개념)
+
+```mermaid
+flowchart LR
+  subgraph client [Client]
+    UI[Next.js]
+  end
+  subgraph api [FastAPI]
+    R[routes]
+    O[orchestrator]
+    S[session_store]
+    M[manifest_store]
+  end
+  subgraph llm [LLM]
+    OA[OpenAIProvider]
+  end
+  UI --> R --> O
+  O --> S
+  O --> M
+  O --> OA
+```
+
+- **라우터는 얇게:** HTTP 검증·DI만 담당하고, 상담 단계 전이·파일 후보 선정·LLM 호출·트레이스 기록은 **`orchestrator`** 에 모읍니다. 이렇게 하면 엔드포인트가 늘어도 비즈니스 규칙이 한곳에 남고, 테스트에서 오케스트레이터만 교체·모킹하기 쉽습니다.
+
+### 인제스션 파이프라인을 둔 이유
+
+- **목적:** `Data/`의 엑셀을 **안정적으로 읽어** `manifest.json`(데이터셋 메타)과 **parquet**(시트 단위)으로 옮깁니다. LLM이 매 요청마다 원본 xlsx를 처음부터 파싱하는 것보다, 서버가 **한 번 정규화**해 두면 컬럼 타입·헤더 행 탐지 같은 실패를 재현·수정하기 쉽습니다.
+- **스냅샷·해시:** 파일 내용이 같으면 스킵하는 식으로 **멱등성**을 두어, 대용량 폴더를 여러 번 돌려도 불필요한 중복 쓰기를 줄입니다.
+- **PDF를 스캔하지 않는 이유:** PDF에서 표를 안정적으로 뽑아 parquet로 만드는 것은 **별도 추출기·레이아웃 모델**이 필요하고 실패 모드가 많습니다. 반면 OpenAI Responses는 **PDF를 `input_file`로 직접 소비**할 수 있어, “카탈로그용 정규화”와 “LLM용 원문”을 **단계를 나눠** 책임을 분리했습니다. 즉, **parquet = 스프레드시트 중심의 구조화 캐시**, **PDF = 추천 시점에만 모델이 읽는 원문**이라는 역할 분담입니다.
+
+### 카탈로그 + 디스크 재스캔을 함께 쓰는 이유
+
+- 카탈로그에 아직 없는 파일이 `Data/`에만 있을 수 있습니다(ingestion 전에 넣은 경우). 추천이 **항상 최신 폴더**를 보려면 `rglob`으로 디스크를 한 번 더 훑어 **고아 파일**을 후보에 넣습니다.
+- 반대로 manifest에 있는 경로가 삭제된 경우는 후보 생성 시 `exists()`로 걸러집니다.
+
+### 지역 필터(`region_hints`, `admissions_files`)를 이렇게 만든 이유
+
+- 사용자는 “영남권”처럼 **광역 단위**를 고르지만, 원본 데이터는 `경상북도`, `경산시` 폴더, `대구대학교` 같은 **서로 다른 표기**가 섞입니다. 단순 부분 문자열 매칭만 하면 `"경북" in "경상북도"`가 거짓이 되는 식의 **행정구역명 불일치**로 파일이 빠지거나, 매칭 실패 시 전체 파일을 다시 노출하는 문제가 생깁니다.
+- 그래서 **(1) 행정 표기 정규화**, **(2) 시·군 폴더명 → 짧은 도 토큰**, **(3) 경로에 `영남권` 같은 매크로 폴더가 있으면 토큰 확장**을 한 뒤, 하나의 “검색용 문자열”에서 매칭합니다. 이는 별도 DB 없이도 **파일 경로만으로 지역 의도를 추론**하게 하려는 타협입니다(정밀도가 더 필요하면 대학–시도 매핑 DB를 추가하는 편이 좋습니다).
+
+### 엑셀 우선 dedupe + `structured_input_tier`의 이유
+
+- 같은 연도·같은 수시/정시에 **엑셀과 PDF가 동시에 있으면** 내용이 사실상 중복인 경우가 많습니다. 둘 다 올리면 **비용·지연·혼선**만 커집니다.
+- OpenAI 쪽에서 스프레드시트는 **시트 단위로 행 수를 제한·요약하는 처리**가 들어가는 반면, PDF는 **텍스트 + 페이지 이미지**가 들어가 토큰이 불리한 경우가 많습니다. 그래서 **동일 묶음에서는 스프레드시트만 남기고 PDF는 제외**하며, 상한으로 자를 때도 **스프레드시트를 더 높은 우선순위**로 둡니다. PDF만 있는 학교는 그대로 PDF를 씁니다.
+
+### OpenAI 파일 캐시(해시 → `file_id`)를 쓰는 이유
+
+- 동일 파일을 매 세션마다 다시 업로드하면 **시간·비용·레이트 리스크**가 커집니다. SHA-256으로 내용이 같으면 **이미 받은 `file_id`를 재사용**합니다.
+
+### `OpenAIProvider`와 `LLMProvider` 인터페이스
+
+- 추천·후속 답변·배치 합성 등에서 **동일한 추상 타입**으로 호출할 수 있게 `LLMProvider`를 두고, 현재 구현체는 **OpenAI만** 둡니다. 나중에 다른 호스팅 API를 붙일 때 같은 인터페이스를 구현하면 오케스트레이터 변경을 최소화할 수 있습니다.
+
+### 구조화 출력(파싱된 요약 스키마)을 쓰는 이유
+
+- 자유 텍스트만 받으면 프론트가 추천 카드로 쓰기 어렵고, 후처리 파싱이 깨지기 쉽습니다. Responses API의 구조화 출력을 쓰면 **필드 단위 검증·빈 추천 재시도** 같은 제어가 가능합니다.
+
+### 배치 합성(`openai_file_batch_size`)
+
+- 후보 파일이 많을 때 한 번에 올리면 **한도·타임아웃**에 걸리기 쉽습니다. 배치로 나눠 요약한 뒤 서버에서 **합성**하는 경로를 두었습니다. 이는 “한 번의 거대한 컨텍스트” 대신 **여러 번의 제한된 컨텍스트**로 나누는 전형적인 절충입니다.
+
+### 웹 검색을 켜 둔 이유(옵션)
+
+- 모집결과 파일에는 없는 **기숙사·등록금·학사일정** 같은 “살아 있는 정보”는 공식 사이트가 더 정확한 경우가 많습니다. 그래서 질문 유형에 따라 **웹 보강**을 켤 수 있게 했고, 끄고 싶으면 환경 변수로 막을 수 있습니다.
+
+---
+
+아래 절들은 실행 방법·환경 변수·배포입니다.
 
 ## Windows: 원클릭 시작 / 종료
 
@@ -41,21 +112,13 @@ uvicorn app.main:app --reload
 
 입시 요약은 **Responses API**에 여러 엑셀을 올리고 추론까지 하므로 **1분 이상** 걸릴 수 있습니다. `COUNSEL_REQUEST_TIMEOUT_SECONDS`(기본 60)만 쓰면 `ReadTimeout` / `APITimeoutError`가 납니다. **`COUNSEL_OPENAI_RESPONSES_TIMEOUT_SECONDS`(기본 900초)** 로 Responses·해당 파일 업로드만 별도로 길게 잡습니다.
 
-### 로컬 Ollama(Gemma 등)
+### 추천 요약(`/complete`)·후속 답변(`/message`)과 `--reload`
 
-[Ollama](https://ollama.com/)를 설치한 뒤 데몬이 **실제로 떠 있어야** 합니다. Windows는 보통 **Ollama 데스크톱 앱**을 한 번 실행하면 트레이에서 서버가 같이 올라갑니다. Linux·macOS는 `ollama serve`를 켜 둡니다. 브라우저나 `curl`로 `http://127.0.0.1:11434/api/tags`가 열리는지 먼저 확인하세요. 사용할 채팅 모델은 `ollama pull gemma3:4b` 등으로 받고, `ollama list`에 보이는 태그를 `COUNSEL_OLLAMA_CHAT_MODEL`과 맞춥니다.
+`POST /api/v1/chat/session/{session_id}/complete`는 **백그라운드 작업**으로 처리됩니다. **HTTP 202**로 먼저 응답한 뒤, 클라이언트는 세션을 폴링하거나 완료 후 같은 엔드포인트를 다시 호출해 **200**과 전체 요약 본문을 받습니다.
 
-`.env`에 `COUNSEL_LLM_PROVIDER=ollama` 또는 `local`을 설정합니다. 앱 기동 시 Ollama 프로바이더면 **`/api/tags`에 대한 짧은 연결 검사**를 하며, 실패하면 **경고 로그**만 남기고 서버는 그대로 올라갑니다(요약 시에도 연결 실패 시 규칙 기반 요약으로 폴백).
+`POST /api/v1/chat/session/{session_id}/message`도 동일하게 **백그라운드 작업**으로 처리될 수 있습니다. 같은 `client_request_id`로 다시 호출하면, 진행 중이면 **202**, 완료되었으면 **200**과 후속 답변 본문을 돌려받습니다.
 
-**호스트 정리:** `COUNSEL_OLLAMA_HOST`가 비어 있으면 Ollama Python SDK와 동일하게 `OLLAMA_HOST` 환경 변수 또는 `http://127.0.0.1:11434`를 씁니다. 시스템에 `OLLAMA_HOST=0.0.0.0:11434`처럼 **바인드 주소**만 적혀 있으면, 백엔드는 클라이언트 접속용으로 **`127.0.0.1`로 바꿔** 붙습니다. **다른 PC의 Ollama**를 쓸 때는 `COUNSEL_OLLAMA_HOST`를 그 머신의 reachable 주소로 명시하세요.
-
-Ollama 경로는 **엑셀을 Responses처럼 업로드하지 않습니다.** 모집결과 파일 경로·메타는 프롬프트 텍스트로만 전달되며, 호스팅 웹 검색도 사용하지 않습니다. OpenAI와 동일한 품질·근거를 기대하려면 `COUNSEL_LLM_PROVIDER=openai`(기본)와 API 키를 쓰는 편이 낫습니다.
-
-### 추천 요약(`/complete`)과 `--reload`
-
-`POST /api/v1/chat/session/{id}/complete`는 **백그라운드 작업**으로 처리됩니다. **HTTP 202**로 먼저 응답한 뒤, 클라이언트는 세션을 폴링하거나 완료 후 같은 엔드포인트를 다시 호출해 **200**과 전체 요약 본문을 받습니다.
-
-OpenAI 프로바이더일 때는 파일 업로드·Responses·추론 때문에 **수 분** 걸릴 수 있습니다. Ollama 프로바이더일 때는 업로드 단계가 없지만, 모델·하드웨어에 따라 응답 시간은 달라집니다. 연결이 안 되면 로그에 Ollama 오류가 남고 **결정적(deterministic) 요약**으로 이어질 수 있습니다.
+파일 업로드·Responses·추론 때문에 **수 분** 걸릴 수 있습니다. API 키·네트워크·모델 오류 시 오케스트레이터는 로그를 남기고 **결정적(deterministic) 요약** 등으로 폴백할 수 있습니다.
 
 - **`--reload`를 켠 상태**에서는 파일이 바뀔 때마다 워커가 재시작되어 긴 작업이 끊길 수 있습니다. 추천 요약을 안정적으로 돌려보려면 `uvicorn app.main:app`(reload 없이) 실행을 권장합니다.
 - **프로덕션**에서는 일반적으로 reload를 사용하지 않습니다.
@@ -130,7 +193,7 @@ npm run dev -- --hostname 0.0.0.0 --port 3000
 
 ### 1. 준비물
 
-- Python **3.12+**, Node.js **18+**(LTS 권장), `npm` 또는 `pnpm`
+- Python **3.12+**, Node.js **20.9+**(LTS 권장), `npm` 또는 `pnpm`
 - 방화벽에서 **80/443**(역프록시 사용 시)만 공개하고, 앱은 `127.0.0.1`에 바인딩하는 구성을 권장합니다.
 - HTTPS(Let’s Encrypt 등)와 실제 도메인 — 외부 공개 운영 시 쿠키 보안을 위해 권장합니다.
 
@@ -154,7 +217,7 @@ npm run build
 
 ### 3. 환경 변수(프로덕션)
 
-- **백엔드** `backend/.env`: OpenAI 사용 시 `COUNSEL_OPENAI_API_KEY`, `COUNSEL_FRONTEND_APP_URL`(예: `https://your.domain`), `COUNSEL_API_CORS_ORIGINS`(프론트 공개 URL), HTTPS 사용 시 **`COUNSEL_COOKIE_SECURE=true`**, `COUNSEL_OPENAI_REASONING_EFFORT`, `COUNSEL_OPENAI_FILE_BATCH_SIZE` 등을 환경에 맞게 채웁니다. 서버에서만 Ollama를 쓸 경우 `COUNSEL_LLM_PROVIDER=ollama`와 Ollama 호스트·모델 변수를 추가합니다(자세한 목록은 아래 [환경 변수](#환경-변수)).
+- **백엔드** `backend/.env`: `COUNSEL_OPENAI_API_KEY`, `COUNSEL_FRONTEND_APP_URL`(예: `https://your.domain`), `COUNSEL_API_CORS_ORIGINS`(프론트 공개 URL), HTTPS 사용 시 **`COUNSEL_COOKIE_SECURE=true`**, `COUNSEL_OPENAI_REASONING_EFFORT`, `COUNSEL_OPENAI_FILE_BATCH_SIZE` 등을 환경에 맞게 채웁니다(자세한 목록은 아래 [환경 변수](#환경-변수)).
 - **프론트** `frontend/.env.production`(또는 배포 플랫폼의 환경 변수): 같은 출처로 `/api/v1`를 쓸 때는 **`NEXT_PUBLIC_API_BASE_URL`을 비우고**, **`BACKEND_INTERNAL_URL=http://127.0.0.1:8000`**처럼 Next 서버만 백엔드에 붙입니다.
 
 ### 4. 프로세스 실행(수동 예시)
@@ -258,28 +321,17 @@ server {
 - `COUNSEL_COOKIE_SECURE` (HTTPS 운영 시 `true` 권장)
 - `COUNSEL_DATA_ROOT`, `COUNSEL_STORAGE_ROOT` (선택; 기본은 저장소 루트 기준 `Data/`, `storage/`)
 
-### LLM 프로바이더
-
-- `COUNSEL_LLM_PROVIDER`: `openai`(기본) · `ollama` · `local`(`ollama`와 동일)
-
-### OpenAI (`COUNSEL_LLM_PROVIDER=openai`)
+### OpenAI
 
 - `COUNSEL_OPENAI_API_KEY`
 - `COUNSEL_OPENAI_CHAT_MODEL`, `COUNSEL_OPENAI_EMBEDDING_MODEL`
 - `COUNSEL_REQUEST_TIMEOUT_SECONDS` (일반 API 타임아웃)
 - `COUNSEL_OPENAI_RESPONSES_TIMEOUT_SECONDS` (Responses·긴 읽기; 기본 900초 권장)
 - `COUNSEL_OPENAI_REASONING_EFFORT`, `COUNSEL_OPENAI_FILE_BATCH_SIZE`
-- `COUNSEL_OPENAI_SUMMARY_MAX_CANDIDATE_FILES` (요약 후보 엑셀 상한)
+- `COUNSEL_OPENAI_SUMMARY_MAX_CANDIDATE_FILES` (요약 후보 모집결과 파일 상한; xlsx·pdf 포함)
 - `COUNSEL_OPENAI_RESPONSES_TEMPERATURE` (선택; 일부 모델은 미설정이 안전)
 - `COUNSEL_OPENAI_WEB_SEARCH_ENABLED` (기본 `true`: 기숙사·등록금 등 생활 정보 질문에서 웹 보강)
 - `COUNSEL_OPENAI_WEB_SEARCH_MODEL` (선택; `web_search`를 지원하는 모델)
-
-### Ollama (`COUNSEL_LLM_PROVIDER=ollama` 또는 `local`)
-
-- `COUNSEL_OLLAMA_HOST` (선택; 비우면 `OLLAMA_HOST` 또는 `http://127.0.0.1:11434`)
-- `COUNSEL_OLLAMA_CHAT_MODEL` (기본 `gemma3:4b`; `ollama list` 태그와 일치)
-- `COUNSEL_OLLAMA_EMBED_MODEL` (기본 `nomic-embed-text`)
-- `COUNSEL_OLLAMA_TIMEOUT_SECONDS`, `COUNSEL_OLLAMA_CHAT_TEMPERATURE`
 
 권장 개발 기본값:
 
@@ -288,9 +340,10 @@ server {
 
 ## 데이터 수집(ingestion)
 
-- **엔드포인트:** `POST /api/v1/ingestion/run` — `Data/` 아래 스프레드시트를 스캔해 `storage/catalog/manifest.json`과 `storage/silver/...` parquet를 갱신합니다.
+- **엔드포인트:** `POST /api/v1/ingestion/run` — `Data/` 아래 **스프레드시트(xls/xlsx)** 를 스캔해 `storage/catalog/manifest.json`과 `storage/silver/...` parquet를 갱신합니다.
+- **PDF**는 ingestion 대상이 아니지만, 같은 `Data/` 트리에 두면 **OpenAI 추천 요약**에서 `input_file`로 함께 올라갈 수 있습니다(같은 학교·연도·수시/정시에 엑셀이 있으면 앱이 **엑셀만 선택**해 토큰을 줄입니다). 자세한 규칙은 [`../Data/README.md`](../Data/README.md)를 보세요.
 - **`storage/`는 Git에 올라가지 않습니다** (`.gitignore`). 저장소를 클론한 다른 머신·서버에서는 `Data/`만 동기화되어 있어도 카탈로그가 비어 있으므로, **배포·로컬 첫 설정 시 ingestion을 반드시 한 번 실행**하세요.
-- 엑셀 **폴더 구조·파일명**은 지역 필터(영남권 등)와 맞물리므로 [`../Data/README.md`](../Data/README.md)를 따르는 것을 권장합니다. `Data/` 경로를 바꾼 뒤에도 ingestion을 다시 돌려야 합니다.
+- **폴더 구조·파일명**은 지역 필터(영남권 등)와 맞물리므로 `Data/README.md`를 따르는 것을 권장합니다. `Data/` 경로를 바꾼 뒤에도 ingestion을 다시 돌려야 합니다.
 
 백엔드가 떠 있지 않을 때 저장소 루트의 `Data/`를 기준으로 로컬에서만 돌리려면:
 
@@ -304,8 +357,8 @@ python -c "from app.config import Settings; from app.dependencies import Service
 1. `POST /api/v1/ingestion/run`으로 수집 실행
 2. `POST /api/v1/chat/session/start`로 게스트 세션 시작
 3. `POST /api/v1/chat/session/{session_id}/answer`로 인테이크 질문에 답변
-4. `POST /api/v1/chat/session/{session_id}/complete`로 최초 추천 요약 생성
-5. `POST /api/v1/chat/session/{session_id}/message`로 후속 비교/생활 질문 이어가기
+4. `POST /api/v1/chat/session/{session_id}/complete`로 최초 추천 요약 생성(첫 호출은 보통 `202`, 완료 후 재호출 시 `200`)
+5. `POST /api/v1/chat/session/{session_id}/message`로 후속 비교/생활 질문 이어가기(같은 `client_request_id` 기준으로 `202` 진행 상태 또는 `200` 완료 응답)
 6. 무료 집계 5턴이 소진되면 백엔드가 추가 질문을 제한
 
 ## API 목록
@@ -317,8 +370,8 @@ python -c "from app.config import Settings; from app.dependencies import Service
 - `POST /api/v1/chat/session/start`
 - `POST /api/v1/chat/session/{session_id}/answer`
 - `GET /api/v1/chat/session/{session_id}`
-- `POST /api/v1/chat/session/{session_id}/complete`
-- `POST /api/v1/chat/session/{session_id}/message`
+- `POST /api/v1/chat/session/{session_id}/complete` (`202` accepted 또는 `200` summary)
+- `POST /api/v1/chat/session/{session_id}/message` (`202` accepted 또는 `200` follow-up)
 
 ## 개발 시 참고
 
@@ -326,7 +379,6 @@ python -c "from app.config import Settings; from app.dependencies import Service
 - 턴 집계의 단일 진실 소스(single source of truth)는 백엔드
 - 전국 파일이 많아지면 `COUNSEL_OPENAI_FILE_BATCH_SIZE`에 따라 여러 배치로 나눠 추천 후 서버에서 합성(OpenAI 프로바이더)
 - `storage/llm/openai_file_cache.json`에 file hash 기준 `file_id` 캐시를 유지(OpenAI)
-- Python 의존성에 `ollama` 패키지가 포함되어 있으며, 로컬 모델 경로에서만 사용됩니다
 
 ## 테스트
 
@@ -337,12 +389,13 @@ cd backend
 python -m pytest
 ```
 
-`tests/conftest.py`에서 **`COUNSEL_LLM_PROVIDER=openai`로 고정**하므로, 로컬 `backend/.env`에 `ollama`를 써도 API 통합 테스트는 OpenAI 프로바이더·모킹 경로를 타며 깨지지 않습니다.
+`tests/conftest.py`에서 테스트용 `Settings`에 **임시 `Data/`·`storage/`**만 지정하므로, 로컬 `backend/.env` 내용과 무관하게 API 통합 테스트가 동일하게 동작합니다.
 
 프론트엔드:
 
 ```bash
 cd frontend
+npm run lint
 npm run build
 ```
 
@@ -352,5 +405,6 @@ npm run build
 - `storage/audit/answer_traces.jsonl`
 - `storage/sessions/<session_id>.json`
 - `storage/auth/state.json`
+- `storage/usage/state.json`
 - `storage/llm/openai_file_cache.json`
 - `storage/silver/<dataset_id>/<snapshot_date>/*.parquet`

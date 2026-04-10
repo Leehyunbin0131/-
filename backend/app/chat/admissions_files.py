@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -27,7 +28,8 @@ _ADMISSIONS_RESULT_HINTS = (
     "경쟁률",
 )
 _ADMISSIONS_GUIDE_HINTS = ("모집요강", "요강")
-_SPREADSHEET_SUFFIXES = (".xls", ".xlsx", ".xlsm")
+# OpenAI Responses `input_file`에 올릴 모집·요강 원문(스프레드시트는 API 쪽 시트 요약으로 PDF보다 토큰 효율적).
+_LLM_ADMISSIONS_SUFFIXES = (".xls", ".xlsx", ".xlsm", ".pdf")
 _REGION_ALIASES: dict[str, tuple[str, ...]] = {
     "서울": ("서울",),
     "경기": ("경기",),
@@ -67,8 +69,58 @@ def _candidate_kind(text: str) -> str | None:
     return None
 
 
-def _is_spreadsheet_path(path: Path) -> bool:
-    return path.suffix.lower() in _SPREADSHEET_SUFFIXES
+def is_llm_admissions_path(path: Path) -> bool:
+    return path.suffix.lower() in _LLM_ADMISSIONS_SUFFIXES
+
+
+def structured_input_tier(path: Path) -> int:
+    """LLM 파일 입력 우선순위(낮을수록 선호). 스프레드시트는 API가 행·요약을 압축, PDF는 텍스트+이미지로 토큰 증가 가능."""
+    s = path.suffix.lower()
+    if s in (".xlsx", ".xlsm", ".xls"):
+        return 0
+    if s == ".pdf":
+        return 1
+    return 2
+
+
+def _pairing_key(candidate: AdmissionsFileCandidate) -> tuple[str, str, str]:
+    text = f"{candidate.source_path} {candidate.title} {candidate.school_name or ''}"
+    school = (candidate.school_name or _extract_school_name(candidate.source_path) or "").strip()
+    if not school:
+        parts = Path(candidate.source_path.replace("\\", "/")).parts
+        school = parts[-2] if len(parts) >= 2 else candidate.source_path
+    year_m = re.search(r"(20\d{2})", text)
+    year = year_m.group(1) if year_m else "unknown"
+    has_s = "수시" in text
+    has_j = "정시" in text
+    if has_s and has_j:
+        phase = "혼합"
+    elif has_j:
+        phase = "정시"
+    elif has_s:
+        phase = "수시"
+    else:
+        phase = "기타"
+    return (school, year, phase)
+
+
+def dedupe_prefer_structured_over_pdf(candidates: list[AdmissionsFileCandidate]) -> list[AdmissionsFileCandidate]:
+    """같은 학교·연도·수시/정시 묶음에서 엑셀이 있으면 PDF는 제외(동일 근거 중복 + PDF 토큰 부담 감소)."""
+    buckets: dict[tuple[str, str, str], list[AdmissionsFileCandidate]] = defaultdict(list)
+    for c in candidates:
+        buckets[_pairing_key(c)].append(c)
+    out: list[AdmissionsFileCandidate] = []
+    for items in buckets.values():
+        structured = [x for x in items if structured_input_tier(x.path) == 0]
+        if structured:
+            out.extend(structured)
+            continue
+        out.extend(items)
+    return out
+
+
+def _candidate_sort_key(item: AdmissionsFileCandidate) -> tuple[bool, int, str]:
+    return (item.kind != "result", structured_input_tier(item.path), item.source_path)
 
 
 def extract_school_names(text: str) -> list[str]:
@@ -133,7 +185,7 @@ def _candidate_from_dataset(
     source_path = dataset.source_path.replace("/", "\\")
     joined = f"{dataset.title} {source_path}"
     path = settings.data_root / Path(source_path)
-    if not path.exists() or not _is_spreadsheet_path(path):
+    if not path.exists() or not is_llm_admissions_path(path):
         return None
     kind = dataset.document_type or _candidate_kind(joined) or "result"
     school_name = dataset.school_name or _extract_school_name(joined)
@@ -163,12 +215,19 @@ def list_admissions_files(settings: Settings, catalog: CatalogState) -> list[Adm
         seen_paths.add(str(candidate.path))
         candidates.append(candidate)
 
-    # catalog에 없는 새 파일도 Data에만 있으면 포함 (ingestion 전에 넣은 경우)
-    for pattern in _SPREADSHEET_SUFFIXES:
-        for path in settings.data_root.rglob(f"*{pattern}"):
+    # catalog에 없는 새 파일도 Data에만 있으면 포함 (PDF는 ingestion 대상이 아니어도 LLM 파일 입력 후보)
+    discovered: set[str] = set()
+    for ext in _LLM_ADMISSIONS_SUFFIXES:
+        for path in settings.data_root.rglob(f"*{ext}"):
+            if path.suffix.lower() != ext:
+                continue
+            key = str(path.resolve())
+            if key in discovered:
+                continue
+            discovered.add(key)
             if str(path) in seen_paths:
                 continue
-            if not _is_spreadsheet_path(path):
+            if not is_llm_admissions_path(path):
                 continue
             joined = str(path.relative_to(settings.data_root))
             kind = _candidate_kind(joined) or "result"
@@ -186,7 +245,9 @@ def list_admissions_files(settings: Settings, catalog: CatalogState) -> list[Adm
                 )
             )
             seen_paths.add(str(path))
-    return sorted(candidates, key=lambda item: (item.kind != "result", item.source_path))
+
+    candidates = dedupe_prefer_structured_over_pdf(candidates)
+    return sorted(candidates, key=_candidate_sort_key)
 
 
 def filter_admissions_files(
@@ -217,4 +278,4 @@ def filter_admissions_files(
             )
         ]
         filtered = narrowed
-    return sorted(filtered, key=lambda item: (item.kind != "result", item.source_path))
+    return sorted(filtered, key=_candidate_sort_key)

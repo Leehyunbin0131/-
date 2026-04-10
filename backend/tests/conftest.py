@@ -86,8 +86,6 @@ def settings(workspace: Path) -> Settings:
         project_root=workspace,
         data_root=workspace / "Data",
         storage_root=workspace / "storage",
-        # 개발자 .env의 COUNSEL_LLM_PROVIDER=ollama 등이 테스트를 오염하지 않도록 고정
-        llm_provider="openai",
     )
     settings.ensure_storage_dirs()
     return settings

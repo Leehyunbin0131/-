@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.chat.admissions_files import AdmissionsFileCandidate
+from app.chat.admissions_files import AdmissionsFileCandidate, structured_input_tier
 from app.chat.models import UserProfile
 
 
@@ -41,6 +41,7 @@ def rank_and_cap_admissions_candidates(
         candidates,
         key=lambda c: (
             -score_admissions_candidate(profile, c),
+            structured_input_tier(c.path),
             c.kind != "result",
             c.source_path,
         ),

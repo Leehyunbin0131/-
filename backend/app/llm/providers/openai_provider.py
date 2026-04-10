@@ -187,25 +187,6 @@ class OpenAIProvider(LLMProvider):
                 return client.responses.create(**retry)
             raise
 
-    def responses_parse_with_web_search(
-        self,
-        messages: Sequence[ChatMessage],
-        *,
-        text_format: type[BaseModel],
-        model: str | None = None,
-        temperature: float | None = None,
-        file_paths: Sequence[Path] | None = None,
-    ) -> GenerationResponse:
-        """Responses API with hosted web_search tool + structured parse (e.g. CounselingSummary)."""
-        return self.responses_parse(
-            messages,
-            text_format=text_format,
-            model=model,
-            temperature=temperature,
-            use_web_search=True,
-            file_paths=file_paths,
-        )
-
     def responses_parse(
         self,
         messages: Sequence[ChatMessage],
@@ -254,23 +235,6 @@ class OpenAIProvider(LLMProvider):
             used_file_input=bool(file_ids),
             file_ids=file_ids,
             file_count=len(file_ids),
-        )
-
-    def responses_create_with_web_search(
-        self,
-        messages: Sequence[ChatMessage],
-        *,
-        model: str | None = None,
-        temperature: float | None = None,
-        file_paths: Sequence[Path] | None = None,
-    ) -> GenerationResponse:
-        """Responses API with hosted web_search; plain text output (e.g. follow-up)."""
-        return self.responses_create(
-            messages,
-            model=model,
-            temperature=temperature,
-            use_web_search=True,
-            file_paths=file_paths,
         )
 
     def responses_create(

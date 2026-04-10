@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   answerQuestion,
@@ -123,7 +123,7 @@ export function SessionExperience({ sessionId }: SessionExperienceProps) {
   const autoCompleted = useRef(false);
   const conversationScrollTargetRef = useRef<HTMLDivElement>(null);
 
-  async function loadStatus() {
+  const loadStatus = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -134,11 +134,67 @@ export function SessionExperience({ sessionId }: SessionExperienceProps) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [sessionId]);
+
+  const applySummaryResult = useCallback((result: SessionSummaryResponse) => {
+    setSummary(result);
+    setSummaryNotice(null);
+    setStatus((current) => mergeSummaryIntoStatus(current, result));
+  }, []);
+
+  const waitForSummaryResult = useCallback(async () => {
+    const pollDeadline = Date.now() + SUMMARY_POLL_TIMEOUT_MS;
+    while (Date.now() < pollDeadline) {
+      await sleep(SUMMARY_POLL_INTERVAL_MS);
+      const nextStatus = await getSession(sessionId);
+      setStatus(nextStatus);
+
+      if (nextStatus.session.summary_job_status === "failed") {
+        throw new Error(
+          nextStatus.session.summary_job_error?.trim() ||
+            "추천 요약 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+      }
+      if (!nextStatus.session.final_summary) {
+        continue;
+      }
+
+      const completed = await completeSession(sessionId);
+      if (completed.kind === "complete") {
+        return completed.data;
+      }
+      throw new Error(
+        "요약이 준비된 것으로 보이나 전체 응답을 받지 못했습니다. 새로고침해 주세요.",
+      );
+    }
+
+    throw new Error(SUMMARY_TIMEOUT_MESSAGE);
+  }, [sessionId]);
+
+  const handleComplete = useCallback(async () => {
+    setActionLoading(true);
+    setError(null);
+    setSummaryNotice(DEFAULT_SUMMARY_WAIT_MESSAGE);
+    try {
+      const first = await completeSession(sessionId);
+      if (first.kind === "complete") {
+        applySummaryResult(first.data);
+        return;
+      }
+
+      setSummaryNotice(normalizeSummaryNotice(first.data.message));
+      const result = await waitForSummaryResult();
+      applySummaryResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "상담 요약을 생성하지 못했습니다.");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [applySummaryResult, sessionId, waitForSummaryResult]);
 
   useEffect(() => {
     void loadStatus();
-  }, [sessionId]);
+  }, [loadStatus]);
 
   useEffect(() => {
     const shouldLoadSummary =
@@ -148,7 +204,7 @@ export function SessionExperience({ sessionId }: SessionExperienceProps) {
       autoCompleted.current = true;
       void handleComplete();
     }
-  }, [status, summary]);
+  }, [handleComplete, status, summary]);
 
   const conversation = useMemo(() => {
     const source = summary?.conversation ?? status?.session.conversation ?? [];
@@ -192,41 +248,6 @@ export function SessionExperience({ sessionId }: SessionExperienceProps) {
     }
   }
 
-  function applySummaryResult(result: SessionSummaryResponse) {
-    setSummary(result);
-    setSummaryNotice(null);
-    setStatus((current) => mergeSummaryIntoStatus(current, result));
-  }
-
-  async function waitForSummaryResult() {
-    const pollDeadline = Date.now() + SUMMARY_POLL_TIMEOUT_MS;
-    while (Date.now() < pollDeadline) {
-      await sleep(SUMMARY_POLL_INTERVAL_MS);
-      const nextStatus = await getSession(sessionId);
-      setStatus(nextStatus);
-
-      if (nextStatus.session.summary_job_status === "failed") {
-        throw new Error(
-          nextStatus.session.summary_job_error?.trim() ||
-            "추천 요약 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.",
-        );
-      }
-      if (!nextStatus.session.final_summary) {
-        continue;
-      }
-
-      const completed = await completeSession(sessionId);
-      if (completed.kind === "complete") {
-        return completed.data;
-      }
-      throw new Error(
-        "요약이 준비된 것으로 보이나 전체 응답을 받지 못했습니다. 새로고침해 주세요.",
-      );
-    }
-
-    throw new Error(SUMMARY_TIMEOUT_MESSAGE);
-  }
-
   async function waitForFollowupResult(clientRequestId: string) {
     const pollDeadline = Date.now() + SUMMARY_POLL_TIMEOUT_MS;
     while (Date.now() < pollDeadline) {
@@ -245,27 +266,6 @@ export function SessionExperience({ sessionId }: SessionExperienceProps) {
       }
     }
     throw new Error(FOLLOWUP_TIMEOUT_MESSAGE);
-  }
-
-  async function handleComplete() {
-    setActionLoading(true);
-    setError(null);
-    setSummaryNotice(DEFAULT_SUMMARY_WAIT_MESSAGE);
-    try {
-      const first = await completeSession(sessionId);
-      if (first.kind === "complete") {
-        applySummaryResult(first.data);
-        return;
-      }
-
-      setSummaryNotice(normalizeSummaryNotice(first.data.message));
-      const result = await waitForSummaryResult();
-      applySummaryResult(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "상담 요약을 생성하지 못했습니다.");
-    } finally {
-      setActionLoading(false);
-    }
   }
 
   async function handleFollowupSubmit(value: string | string[]) {
