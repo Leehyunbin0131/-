@@ -105,15 +105,32 @@ class OpenAIProvider(LLMProvider):
         return instructions, [{"role": "user", "content": content_parts}]
 
     @staticmethod
+    def _dump_response_payload(resp: Any) -> dict[str, Any]:
+        """Serialize OpenAI response objects without Pydantic union-serialization noise."""
+        model_dump = getattr(resp, "model_dump", None)
+        if model_dump is None:
+            return {}
+        # Prefer Pydantic 2.12+ flags; fall back for stubs/tests that only implement model_dump(mode=...).
+        attempts: list[dict[str, Any] | None] = [
+            {"mode": "json", "serialize_as_any": True, "warnings": "none"},
+            {"mode": "python", "serialize_as_any": True, "warnings": "none"},
+            {"mode": "json"},
+            None,
+        ]
+        for spec in attempts:
+            try:
+                dumped = model_dump(**spec) if spec else model_dump()
+                return dumped if isinstance(dumped, dict) else {}
+            except TypeError:
+                continue
+            except Exception:
+                continue
+        return {}
+
+    @staticmethod
     def _responses_metadata(resp: Any) -> tuple[list[dict[str, Any]], bool]:
         """Best-effort extraction of hosted tool calls from Responses API payloads."""
-        try:
-            payload = resp.model_dump(mode="json")
-        except Exception:
-            try:
-                payload = resp.model_dump()
-            except Exception:
-                payload = {}
+        payload = OpenAIProvider._dump_response_payload(resp)
 
         tool_calls: list[dict[str, Any]] = []
         used_web_search = False
@@ -223,7 +240,11 @@ class OpenAIProvider(LLMProvider):
                 kwargs["reasoning"] = reasoning
         resp = self._responses_parse_maybe_retry(client, kwargs)
         parsed_obj = resp.output_parsed
-        parsed_dump = parsed_obj.model_dump(mode="json") if parsed_obj is not None else None
+        parsed_dump = (
+            parsed_obj.model_dump(mode="json", serialize_as_any=True, warnings="none")
+            if parsed_obj is not None
+            else None
+        )
         tool_calls, used_web_search = self._responses_metadata(resp)
         return GenerationResponse(
             provider=self.profile.provider,
@@ -307,7 +328,11 @@ class OpenAIProvider(LLMProvider):
                 **common_kwargs,
             )
             message = completion.choices[0].message
-            parsed = message.parsed.model_dump() if message.parsed is not None else None
+            parsed = (
+                message.parsed.model_dump(mode="json", serialize_as_any=True, warnings="none")
+                if message.parsed is not None
+                else None
+            )
             content = message.content or ""
             if parsed is not None and not content:
                 content = response_model.model_validate(parsed).model_dump_json()
@@ -330,7 +355,10 @@ class OpenAIProvider(LLMProvider):
         message = completion.choices[0].message
         tool_calls = []
         if message.tool_calls:
-            tool_calls = [tool_call.model_dump(mode="json") for tool_call in message.tool_calls]
+            tool_calls = [
+                tool_call.model_dump(mode="json", serialize_as_any=True, warnings="none")
+                for tool_call in message.tool_calls
+            ]
         return GenerationResponse(
             provider=self.profile.provider,
             model=resolved_model,
