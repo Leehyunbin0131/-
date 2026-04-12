@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>체험하기</b> ·
-  <a href="https://thomson-takes-speaking-cache.trycloudflare.com"><b>라이브 데모 (HTTPS)</b></a>
+  <a href="https://insight-pubmed-mechanisms-kits.trycloudflare.com"><b>라이브 데모 (HTTPS)</b></a>
   <br /><br />
   <sub><i>현재 데모는 Cloudflare Quick Tunnel 주소를 사용합니다. 터널이 재시작되면 주소가 바뀔 수 있습니다.</i></sub>
 </p>
