@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>체험하기</b> ·
-  <a href="https://favourites-energy-boundary-advanced.trycloudflare.com"><b>라이브 데모 (HTTPS)</b></a>
+  <a href="https://greatest-planning-pre-clock.trycloudflare.com"><b>라이브 데모 (HTTPS)</b></a>
   <br /><br />
   <sub><i>현재 데모는 Cloudflare Quick Tunnel 주소를 사용합니다. `cloudflared-quick`가 재시작되면 저장소의 자동 동기화 스크립트가 `README.md`와 `backend/.env`를 갱신하고, `README.md`가 바뀐 경우 10초 뒤 자동 커밋/푸시까지 수행합니다.</i></sub>
 </p>
