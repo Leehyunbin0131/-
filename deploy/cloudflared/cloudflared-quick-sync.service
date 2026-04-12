@@ -1,7 +1,5 @@
 [Unit]
 Description=Sync Career Counsel Quick Tunnel URL
-After=cloudflared-quick.service
-Requires=cloudflared-quick.service
 
 [Service]
 Type=oneshot

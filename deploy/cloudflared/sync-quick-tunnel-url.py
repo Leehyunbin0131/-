@@ -192,10 +192,17 @@ def update_backend_env(env_path: Path, new_url: str) -> bool:
     return changed
 
 
-def restart_api_service(service_name: str) -> None:
+def restart_api_service(service_name: str) -> bool:
     if not service_name:
-        return
-    run_command(["systemctl", "restart", service_name])
+        return False
+    result = run_command(["sudo", "systemctl", "restart", service_name], check=False)
+    if result.returncode != 0:
+        print(
+            f"WARNING: Failed to restart {service_name} (exit {result.returncode}). "
+            f"stderr: {result.stderr.strip()}"
+        )
+        return False
+    return True
 
 
 def relative_repo_path(repo_root: Path, path: Path) -> Path:
@@ -296,8 +303,9 @@ def main() -> int:
         backend_changed = update_backend_env(backend_env, url)
         readme_changed = update_readme(readme_path, url)
 
+        api_restarted = False
         if backend_changed and not args.skip_restart_api:
-            restart_api_service(args.api_service)
+            api_restarted = restart_api_service(args.api_service)
 
         readme_pushed = False
         if readme_changed and args.git_auto_push:
@@ -315,7 +323,7 @@ def main() -> int:
         print(f"backend/.env updated: {'yes' if backend_changed else 'no'}")
         print(f"README.md updated: {'yes' if readme_changed else 'no'}")
         if backend_changed and not args.skip_restart_api:
-            print(f"Restarted API service: {args.api_service}")
+            print(f"Restarted API service: {'yes' if api_restarted else 'FAILED (non-fatal)'}")
         if readme_changed and args.git_auto_push:
             print(f"README auto-pushed: {'yes' if readme_pushed else 'no'}")
         return 0
