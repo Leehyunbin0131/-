@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ImageAZ.png" alt="Career Counsel AI" width="960" />
+</p>
+
 # Career Counsel AI
 
 <p align="center">
