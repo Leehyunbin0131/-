@@ -98,7 +98,7 @@ def detect_tunnel_url(unit: str, wait_seconds: int) -> str:
     deadline = time.time() + wait_seconds
     while time.time() <= deadline:
         completed = subprocess.run(
-            ["journalctl", "-u", unit, "--no-pager", "-n", "200"],
+            ["journalctl", "-u", unit, "--no-pager", "-b", "-n", "200"],
             check=False,
             capture_output=True,
             text=True,
