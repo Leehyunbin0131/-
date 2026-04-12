@@ -1,0 +1,61 @@
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name 58.237.19.159 _;
+
+    client_max_body_size 80m;
+    client_body_timeout 120s;
+
+    if ($is_kr_allowed = 0) {
+        return 403;
+    }
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-site" always;
+
+    location /api/v1/ingestion/ {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        limit_req zone=cc_api burst=5 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s;
+        proxy_connect_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+
+    location /api/v1/ {
+        limit_req zone=cc_api burst=40 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s;
+        proxy_connect_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+
+    location / {
+        limit_req zone=cc_web burst=80 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s;
+        proxy_connect_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+}

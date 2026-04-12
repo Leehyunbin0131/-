@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloudflare Quick Tunnel (trycloudflare.com, no custom domain)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/run-tunnel/trycloudflare/
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --url http://127.0.0.1:80
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

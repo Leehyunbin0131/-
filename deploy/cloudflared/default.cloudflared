@@ -1,0 +1,3 @@
+# Cloudflare Zero Trust → Networks → Tunnels → (터널 선택) → 설치 스크립트에 나온 토큰
+# 예: CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
+CLOUDFLARE_TUNNEL_TOKEN=

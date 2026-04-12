@@ -1,3 +1,4 @@
+import { LandingNotice } from "@/components/landing/LandingNotice";
 import { StartTrialButton } from "@/components/landing/StartTrialButton";
 
 export default function HomePage() {
@@ -15,6 +16,7 @@ export default function HomePage() {
           우선 읽고 합격 가능성이 더 높아 보이는 대학·학과·전형 조합을 정리합니다.
           기숙사와 등록금 같은 생활 정보는 공식 안내 기준으로 함께 보강합니다.
         </p>
+        <LandingNotice />
         <div className="landingMeta">
           <span className="metaPill">모집결과 file inputs</span>
           <span className="metaPill">전형 추천 포함</span>

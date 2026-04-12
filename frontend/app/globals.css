@@ -93,6 +93,17 @@ button {
   margin: 0 0 28px;
 }
 
+.landingNotice {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #4a4030;
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--warning-border);
+  background: var(--warning);
+}
+
 .landingMeta {
   display: flex;
   flex-wrap: wrap;

@@ -1,6 +1,19 @@
 # Career Counsel AI
 
+<p align="center">
+  <br />
+  <b>체험하기</b> ·
+  <a href="https://surveys-sophisticated-barn-tickets.trycloudflare.com"><b>라이브 데모 (HTTPS)</b></a>
+  <br /><br />
+  <sub><i>Cloudflare Quick Tunnel 주소는 커넥터 재시작 시 바뀔 수 있습니다. 최신 URL은 서버에서 <code>sudo journalctl -u cloudflared-quick -n 40 | grep trycloudflare</code> 로 확인한 뒤, <code>backend/.env</code>의 <code>COUNSEL_FRONTEND_APP_URL</code> · <code>COUNSEL_API_CORS_ORIGINS</code>를 맞추고 API를 재시작하세요.</i></sub>
+  <br /><br />
+</p>
+
+---
+
 대학 입시를 준비하는 학생·보호자가 **학생부 활동과 교과 성취(내신)**, **모의고사·수능 등 성적 정보**, 그리고 **지원 전형·지역·선호**를 한곳에 정리한 뒤, 실제 **공개된 모집결과·통계 자료**와 맞춰 보며 방향을 잡을 수 있도록 돕는 풀스택 앱입니다. 백엔드는 **FastAPI**, 프론트는 **Next.js(App Router)** 입니다.
+
+배포·터널 보조 스크립트는 [`deploy/`](deploy/) 를 참고하세요.
 
 ## 왜 이 프로젝트인가
 
@@ -9,6 +22,7 @@
 - **입력 쪽:** 재학 상태, 관심 계열, **내신(교과/전교과 등급)**, **모의고사·수능 성적**, 희망 전형·지역, 제약 조건(거리·기숙사 등)을 단계적으로 수집합니다.  
 - **근거 쪽:** 시스템이 카탈로그에 등록된 모집결과·통계 파일을 후보로 골라(OpenAI 사용 시 파일까지 직접 참조), 그 맥락에서 요약·설명을 생성합니다.  
 - **한계:** 합격을 보장하지 않으며, 최종 지원은 반드시 공식 모집요강·입학처 안내와 본인 판단을 따릅니다.
+- **현재 데이터 범위:** `Data/`에 포함된 모집결과를 기준으로, **당분간 경북권 일부 대학** 위주로만 실질적인 추천·근거 파일 매칭이 이루어집니다. 원본을 추가하고 인제스션을 돌리면 지원 범위를 넓힐 수 있습니다.
 
 ## 구성
 
