@@ -8,7 +8,7 @@
   <b>체험하기</b> ·
   <a href="https://surveys-sophisticated-barn-tickets.trycloudflare.com"><b>라이브 데모 (HTTPS)</b></a>
   <br /><br />
-  <sub><i>현재 데모는 Cloudflare Quick Tunnel 주소를 사용합니다. 커넥터 재시작 시 주소가 바뀔 수 있으며, 최신 URL은 <code>sudo journalctl -u cloudflared-quick -n 40 | grep trycloudflare</code> 로 확인할 수 있습니다.</i></sub>
+  <sub><i>현재 데모는 Cloudflare Quick Tunnel 주소를 사용합니다. `cloudflared-quick`가 재시작되면 저장소의 자동 동기화 스크립트가 `README.md`와 `backend/.env`의 최신 URL을 함께 갱신합니다.</i></sub>
 </p>
 
 ---
@@ -118,6 +118,8 @@ npm run dev
 
 - 로컬/사설망/공인 IP 노출 방식 모두 지원할 수 있도록 설계되어 있습니다.
 - 현재 저장소에는 **Nginx, Cloudflare Tunnel, 한국 IP 필터링**을 위한 보조 스크립트가 포함되어 있습니다.
+- 서버 상시 구동용 `systemd` 설치 스크립트는 `deploy/systemd/install-counsel-services.sh`에 있습니다.
+- Quick Tunnel 주소 자동 동기화 설치 스크립트는 `deploy/cloudflared/install-cloudflare-quick-tunnel.sh`에 있습니다.
 - 운영 환경에서는 `storage/`가 비어 있을 수 있으므로, **서버 배포 후 ingestion을 최소 1회 실행**해야 추천이 정상 동작합니다.
 
 ## 라이선스

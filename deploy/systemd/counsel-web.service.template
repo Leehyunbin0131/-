@@ -1,0 +1,25 @@
+[Unit]
+Description=Career Counsel Next.js
+After=network.target counsel-api.service
+Requires=counsel-api.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__ROOT__/frontend
+EnvironmentFile=__ROOT__/frontend/.env.production
+ExecStart=__NPM__ run start -- --hostname 127.0.0.1 --port 3000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

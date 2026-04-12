@@ -238,6 +238,8 @@ npm run start
 
 ### 5. systemd로 상시 구동(예시)
 
+현재 저장소에는 위 예시를 현재 저장소 경로 기준으로 설치하는 스크립트 `../deploy/systemd/install-counsel-services.sh`도 포함되어 있습니다.
+
 `/etc/systemd/system/counsel-api.service`:
 
 ```ini
