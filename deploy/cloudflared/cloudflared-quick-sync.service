@@ -5,5 +5,9 @@ Requires=cloudflared-quick.service
 
 [Service]
 Type=oneshot
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__ROOT__
+Environment=HOME=__HOME__
 EnvironmentFile=/etc/default/career-counsel-quick-tunnel-sync
 ExecStart=/usr/bin/python3 /usr/local/lib/career-counsel/sync-quick-tunnel-url.py

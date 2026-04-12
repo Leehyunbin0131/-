@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 TRYCLOUDFLARE_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+DEFAULT_GIT_COMMIT_MESSAGE = "docs: refresh live demo URL"
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,6 +42,25 @@ def parse_args() -> argparse.Namespace:
         default=int(os.environ.get("CAREER_COUNSEL_WAIT_SECONDS", "60")),
     )
     parser.add_argument(
+        "--git-push-delay-seconds",
+        type=int,
+        default=int(os.environ.get("CAREER_COUNSEL_GIT_PUSH_DELAY_SECONDS", "10")),
+    )
+    parser.add_argument(
+        "--git-remote",
+        default=os.environ.get("CAREER_COUNSEL_GIT_REMOTE", "origin"),
+    )
+    parser.add_argument(
+        "--git-branch",
+        default=os.environ.get("CAREER_COUNSEL_GIT_BRANCH", "main"),
+    )
+    parser.add_argument(
+        "--git-commit-message",
+        default=os.environ.get(
+            "CAREER_COUNSEL_GIT_COMMIT_MESSAGE", DEFAULT_GIT_COMMIT_MESSAGE
+        ),
+    )
+    parser.add_argument(
         "--url",
         default=os.environ.get("CAREER_COUNSEL_TUNNEL_URL"),
         help="Override the detected trycloudflare URL.",
@@ -50,12 +70,28 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=os.environ.get("CAREER_COUNSEL_DRY_RUN", "").lower() == "true",
     )
+    parser.add_argument(
+        "--git-auto-push",
+        action="store_true",
+        default=os.environ.get("CAREER_COUNSEL_GIT_AUTO_PUSH", "").lower() == "true",
+    )
     parser.add_argument("--skip-restart-api", action="store_true")
     return parser.parse_args()
 
 
-def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=True, capture_output=True, text=True)
+def run_command(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        check=check,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
 
 
 def detect_tunnel_url(unit: str, wait_seconds: int) -> str:
@@ -162,6 +198,66 @@ def restart_api_service(service_name: str) -> None:
     run_command(["systemctl", "restart", service_name])
 
 
+def relative_repo_path(repo_root: Path, path: Path) -> Path:
+    return path.resolve().relative_to(repo_root.resolve())
+
+
+def has_staged_changes(repo_root: Path) -> bool:
+    completed = run_command(
+        ["git", "diff", "--cached", "--quiet"],
+        cwd=repo_root,
+        check=False,
+    )
+    return completed.returncode != 0
+
+
+def commit_and_push_readme(
+    *,
+    repo_root: Path,
+    readme_path: Path,
+    remote: str,
+    branch: str,
+    delay_seconds: int,
+    commit_message: str,
+    dry_run: bool,
+) -> bool:
+    relative_readme = relative_repo_path(repo_root, readme_path)
+
+    if dry_run:
+        print(
+            f"[dry-run] would wait {delay_seconds}s then commit and push {relative_readme}"
+        )
+        print(f"[dry-run] would run: git push {remote} HEAD:{branch}")
+        return False
+
+    if delay_seconds > 0:
+        time.sleep(delay_seconds)
+
+    if has_staged_changes(repo_root):
+        print(
+            "Skipped README auto-push because the repository already has staged changes."
+        )
+        return False
+
+    run_command(["git", "add", "--", str(relative_readme)], cwd=repo_root)
+
+    staged_readme = run_command(
+        ["git", "diff", "--cached", "--quiet", "--", str(relative_readme)],
+        cwd=repo_root,
+        check=False,
+    )
+    if staged_readme.returncode == 0:
+        print("Skipped README auto-push because there is no staged README change.")
+        return False
+
+    run_command(
+        ["git", "commit", "-m", commit_message, "--", str(relative_readme)],
+        cwd=repo_root,
+    )
+    run_command(["git", "push", remote, f"HEAD:{branch}"], cwd=repo_root)
+    return True
+
+
 def resolve_path(value: str | None, fallback: Path | None = None) -> Path:
     if value:
         return Path(value).resolve()
@@ -182,6 +278,8 @@ def main() -> int:
         args.readme,
         repo_root / "README.md" if repo_root else None,
     )
+    if repo_root is None:
+        repo_root = readme_path.parent
 
     url = args.url or detect_tunnel_url(args.quick_tunnel_unit, args.wait_seconds)
 
@@ -194,19 +292,44 @@ def main() -> int:
         print(f"[dry-run] would update {readme_path}")
         if not args.skip_restart_api:
             print(f"[dry-run] would restart {args.api_service}")
+    else:
+        backend_changed = update_backend_env(backend_env, url)
+        readme_changed = update_readme(readme_path, url)
+
+        if backend_changed and not args.skip_restart_api:
+            restart_api_service(args.api_service)
+
+        readme_pushed = False
+        if readme_changed and args.git_auto_push:
+            readme_pushed = commit_and_push_readme(
+                repo_root=repo_root,
+                readme_path=readme_path,
+                remote=args.git_remote,
+                branch=args.git_branch,
+                delay_seconds=args.git_push_delay_seconds,
+                commit_message=args.git_commit_message,
+                dry_run=args.dry_run,
+            )
+
+        print(f"Synced Quick Tunnel URL: {url}")
+        print(f"backend/.env updated: {'yes' if backend_changed else 'no'}")
+        print(f"README.md updated: {'yes' if readme_changed else 'no'}")
+        if backend_changed and not args.skip_restart_api:
+            print(f"Restarted API service: {args.api_service}")
+        if readme_changed and args.git_auto_push:
+            print(f"README auto-pushed: {'yes' if readme_pushed else 'no'}")
         return 0
 
-    backend_changed = update_backend_env(backend_env, url)
-    readme_changed = update_readme(readme_path, url)
-
-    if backend_changed and not args.skip_restart_api:
-        restart_api_service(args.api_service)
-
-    print(f"Synced Quick Tunnel URL: {url}")
-    print(f"backend/.env updated: {'yes' if backend_changed else 'no'}")
-    print(f"README.md updated: {'yes' if readme_changed else 'no'}")
-    if backend_changed and not args.skip_restart_api:
-        print(f"Restarted API service: {args.api_service}")
+    if args.git_auto_push:
+        commit_and_push_readme(
+            repo_root=repo_root,
+            readme_path=readme_path,
+            remote=args.git_remote,
+            branch=args.git_branch,
+            delay_seconds=args.git_push_delay_seconds,
+            commit_message=args.git_commit_message,
+            dry_run=True,
+        )
 
     return 0
 

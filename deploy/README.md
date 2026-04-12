@@ -17,7 +17,7 @@
 - **공인 IP 직접 노출** 시 사용할 수 있는 Nginx 설정
 - **Cloudflare Quick Tunnel / named tunnel** 전환에 필요한 systemd 유닛
 - **서버 재부팅 시 자동 시작**되도록 `counsel-api`, `counsel-web` 유닛 설치 스크립트
-- **Quick Tunnel URL 자동 동기화**(`README.md`, `backend/.env`, `counsel-api` 재시작)
+- **Quick Tunnel URL 자동 동기화**(`README.md`, `backend/.env`, `counsel-api` 재시작, `README.md` 변경 시 10초 뒤 자동 Git push)
 - **한국 IP만 허용**하는 geo 기반 Nginx 보조 설정
 - **ipdeny** 기반 KR CIDR 주기 갱신 스크립트
 
